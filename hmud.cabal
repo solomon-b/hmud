@@ -1,0 +1,48 @@
+name:                hmud
+version:             0.1.0.0
+-- synopsis:
+-- description:
+homepage:            https://github.com/ssbothwell/hmud#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Solomon Bothwell
+maintainer:          ssbothwell@gmail.com 
+copyright:           2019 Solomon Bothwell
+category:            Web
+build-type:          Simple
+cabal-version:       >=1.10
+extra-source-files:  README.md
+
+executable hmud
+  hs-source-dirs:      src
+  main-is:             Main.hs
+  default-language:    Haskell2010
+  other-modules:       SqliteLib
+                     , TelnetLib
+                     , Parser
+  build-depends:       base >= 4.7 && < 5
+                     , bytestring
+                     , mtl
+                     , network
+                     , raw-strings-qq
+                     , sqlite-simple
+                     , stm
+                     , text
+                     , transformers
+                     , trifecta
+
+library
+  ghc-options:         -Wall
+  exposed-modules:     SqliteLib
+                     , TelnetLib
+                     , Parser
+  hs-source-dirs:      src
+  build-depends:       base >=4.7 && <5
+                     , bytestring
+                     , raw-strings-qq
+                     , sqlite-simple
+                     , text
+                     , network
+                     , mtl
+                     , trifecta
+  default-language: Haskell2010
