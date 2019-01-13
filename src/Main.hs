@@ -104,9 +104,14 @@ getUsers conn = do
 logout :: User -> ReaderT ThreadEnv IO ()
 logout currUser = do
     stateTVar <- asks threadEnvStateTVar
-    stateMap <- liftIO $ globalStateWhois <$> readTVarIO stateTVar
+    stateMap <- liftIO $ globalActiveUsers <$> readTVarIO stateTVar
     writeTVarR $ GlobalState $ M.delete username stateMap
     where username = userUsername currUser
+
+readState :: ReaderT ThreadEnv IO GlobalState
+readState = do
+    stateTVar <- asks threadEnvStateTVar
+    liftIO $ readTVarIO stateTVar
 
 writeTVarR :: GlobalState -> ReaderT ThreadEnv IO ()
 writeTVarR state = do
@@ -148,8 +153,15 @@ readTChanLoop = void . forkReader . forever $ do
 
 -- TODO: Cleanup this function:
 whois :: GlobalState -> Text
-whois curState = T.pack . intercalate ", " . fmap (show . fst) $ M.elems $ globalStateWhois curState
+whois curState = T.pack . intercalate ", " . fmap (show . fst) $ M.elems $ globalActiveUsers curState
 
+userIsLoggedIn :: Text -> ReaderT ThreadEnv IO ()
+userIsLoggedIn username = do
+    curState <- readState
+    let stateMap = globalActiveUsers curState
+        mUser = M.lookup username stateMap
+    return ()
+    
 
 -----------------
 ---- Prompts ----
@@ -160,9 +172,9 @@ mainMenu = undefined
 
 loginPrompt :: ReaderT ThreadEnv IO ()
 loginPrompt = do
-    stateTVar <- asks threadEnvStateTVar
     conn <- asks threadEnvConn
     sock <- asks threadEnvSock
+    curState <- readState
     thread <- liftIO myThreadId
 
     user <- liftIO $ prompt sock "Login: "
@@ -176,7 +188,7 @@ loginPrompt = do
     case loginResult of
         Left err' -> liftIO (print err') >> sendMsg err' >> loginPrompt
         Right user' -> do
-            stateMap <- liftIO $ globalStateWhois <$> readTVarIO stateTVar
+            let stateMap = globalActiveUsers curState
             writeTVarR . GlobalState $ M.insert (userUsername user') (user', thread) stateMap
             liftIO $ print $ userUsername user' +++ " Logged In"
             sendMsg "\r\nLogin Succesful"
@@ -223,7 +235,9 @@ gamePrompt (Just (user, _)) = do
         Right (Echo msg) -> sendMsg msg
         Right Exit -> logout user >> sendMsg "Goodbye!" >> liftIO (close sock)
         Right Logout -> logout user
-        Right Shutdown -> sendMsg "Shutting Down! Goodbye!" >> liftIO (SQLite.close conn >> close sock >> exitSuccess)
+        Right Shutdown -> do
+            sendMsg "Shutting Down! Goodbye!" 
+            liftIO (SQLite.close conn >> close sock >> exitSuccess)
         Right Whois -> sendMsg (whois state)
         Right (Say msg) -> broadcast . T.unpack $ T.concat ["<", userUsername user, "> ", msg]
         Left err' -> sendMsg "Command not recognized" >> liftIO (print err')
@@ -242,7 +256,7 @@ userLoop = do
     readTChanLoop
     liftIO $ print state
     liftIO $ print thread
-    let user = find (\(_, tid) -> tid == thread) $ globalStateWhois state
+    let user = find (\(_, tid) -> tid == thread) $ globalActiveUsers state
 
     gamePrompt user 
     userLoop 

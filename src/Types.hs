@@ -34,8 +34,7 @@ type Msg = String
 type Username = Text
 
 newtype GlobalState = 
-    --GlobalState { globalStateWhois :: [(User, ThreadId)] } 
-    GlobalState { globalStateWhois :: Map Username (User, ThreadId) } 
+    GlobalState { globalActiveUsers :: Map Username (User, ThreadId) } 
     deriving Show
 
 
