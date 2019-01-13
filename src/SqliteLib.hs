@@ -1,38 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-module SqliteLib where
+module SqliteLib 
+    ( createDatabase
+    , selectUser
+    , insertUser
+    , formatUser
+    , constructUser
+    , selectUsersQuery
+    ) where
 
 import Control.Exception
-import Data.Text (Text, append, concat)
-import Data.Typeable
+import Data.Text (Text, concat)
 import Database.SQLite.Simple
 import qualified Database.SQLite.Simple as SQLite
 import Database.SQLite.Simple.Types
 import Text.RawString.QQ
 
-
------------------------------
----- Types and Instances ----
------------------------------
-
-data User =
-    User { userUserId   :: Integer
-         , userUsername :: Text
-         , userPassword :: Text
-         } deriving (Eq, Show)
-
-type UserRow = (Null, Text, Text)
-
-data DuplicateData = DuplicateData 
-    deriving (Eq, Show, Typeable)
-
-instance Exception DuplicateData
-
-instance FromRow User where
-    fromRow = User <$> field <*> field <*> field
-
-instance ToRow User where
-    toRow (User id_ username' password') = toRow (id_, username', password')
+import Types (User(..), UserRow, DuplicateData(..))
 
 
 -----------------
@@ -41,7 +25,7 @@ instance ToRow User where
 
 createUserTableQuery :: Query
 createUserTableQuery = [r|
-CREATE TABLE IF NOT EXISTS accounts
+CREATE TABLE IF NOT EXISTS users
     (id INTEGER PRIMARY KEY AUTOINCREMENT,
      username TEXT UNIQUE,
      password TEXT)

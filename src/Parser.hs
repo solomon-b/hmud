@@ -1,4 +1,4 @@
-module Parser where
+module Parser (commandParser, resultToEither, runParse, word)  where
 
 import Control.Applicative
 import Data.ByteString (ByteString)
@@ -7,19 +7,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Trifecta
 
-import SqliteLib (User(..))
+import Types (User(..), Command(..))
 
-data Command = 
-      GetUsers
-    | GetUser Text
-    | AddUser User
-    | Echo Text
-    | Exit
-    | Shutdown
-    | Logout
-    | Whois
-    | Say Text
-    deriving (Eq, Show)
 
 word :: Parser Text
 word = token $ T.pack <$> some letter
