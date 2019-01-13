@@ -1,4 +1,4 @@
-module Parser (commandParser, resultToEither, runParse, word)  where
+module Parser (commandParser, resultToEither, runParse, runWordParse, word)  where
 
 import Control.Applicative
 import Data.ByteString (ByteString)
@@ -41,6 +41,16 @@ parserShutdown = token $ do
     _ <- symbol "shutdown"
     return Shutdown
 
+parserRegister :: Parser Command
+parserRegister = token $ do
+    _ <- symbol "register"
+    return Register
+
+parserLogin :: Parser Command
+parserLogin = token $ do
+    _ <- symbol "login"
+    return Login
+
 parserLogout :: Parser Command
 parserLogout = token $ do
     _ <- symbol "logout"
@@ -70,12 +80,18 @@ commandParser =  parserGetUsers
              <|> parserExit
              <|> parserShutdown
              <|> parserEcho
+             <|> parserRegister
+             <|> parserLogin
              <|> parserLogout
              <|> parserWhois
              <|> parserSay
 
+
 runParse :: ByteString -> Either Text Command
 runParse = resultToEither . parseByteString commandParser mempty
+
+runWordParse :: ByteString -> Either Text Text
+runWordParse bs = resultToEither $ parseByteString word mempty bs
     
 resultToEither :: Result a -> Either Text a
 resultToEither (Failure err') = Left . T.pack $ show err'

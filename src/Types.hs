@@ -49,6 +49,8 @@ data Command =
     | Echo Text
     | Exit
     | Shutdown
+    | Register
+    | Login
     | Logout
     | Whois
     | Say Text

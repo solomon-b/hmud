@@ -79,6 +79,23 @@ validateUsername usernameBS = do
                 Right _ -> return Nothing
                 Left _ -> return $ Just username
 
+userAlreadyExists :: Text -> ReaderT ThreadEnv IO ()
+userAlreadyExists username = undefined
+
+userIsLoggedIn :: Text -> ReaderT ThreadEnv IO ()
+userIsLoggedIn username = do
+    curState <- readState
+    let stateMap = globalActiveUsers curState
+        mUser = M.lookup username stateMap
+    case mUser of
+        Just mUser -> do
+            sendMsg "You are already logged in!"
+            loginPrompt
+        Nothing -> return ()
+
+threadHasUser :: ThreadId -> ReaderT ThreadEnv IO ()
+threadHasUser thread = undefined
+
 addUser :: Connection -> User -> IO Text
 addUser conn (User _ username password) = do
     eInserted <- insertUser conn [username, password]
@@ -155,45 +172,48 @@ readTChanLoop = void . forkReader . forever $ do
 whois :: GlobalState -> Text
 whois curState = T.pack . intercalate ", " . fmap (show . fst) $ M.elems $ globalActiveUsers curState
 
-userIsLoggedIn :: Text -> ReaderT ThreadEnv IO ()
-userIsLoggedIn username = do
-    curState <- readState
-    let stateMap = globalActiveUsers curState
-        mUser = M.lookup username stateMap
-    return ()
-    
 
 -----------------
 ---- Prompts ----
 -----------------
 
-mainMenu :: ReaderT ThreadEnv IO ()
-mainMenu = undefined
+mainMenuPrompt :: ReaderT ThreadEnv IO ()
+mainMenuPrompt = do
+    --thread <- liftIO myThreadId
+    sock <- asks threadEnvSock
+    mapM_ sendMsg ["Welcome to hMud", "Options:", "register", "login", "exit"]
+    
+    eCommand <- liftIO $ runParse <$> prompt sock "> "
+    case eCommand of
+        Left err' -> sendMsg "Invalid Command" >> mainMenuPrompt 
+        Right Exit -> return ()
+        Right Login -> loginPrompt
+        Right Register -> return ()
 
+-- TODO: Refactor and simplify:
 loginPrompt :: ReaderT ThreadEnv IO ()
 loginPrompt = do
-    conn <- asks threadEnvConn
-    sock <- asks threadEnvSock
+    (ThreadEnv conn sock _ _ _) <- ask
     curState <- readState
     thread <- liftIO myThreadId
 
-    user <- liftIO $ prompt sock "Login: "
+    parsedUser <- liftIO $ runWordParse <$> prompt sock "Login: "
     suppressEcho
-    password <- liftIO $ prompt sock "Password: "
+    parsedPassword <- liftIO $ runWordParse <$> prompt sock "Password: "
     unsuppressEcho
-    let parsedUser = resultToEither $ parseByteString word mempty user
-    let parsedPassword = resultToEither $ parseByteString word mempty password
-    
+
     loginResult <- liftIO $ checkLogin conn parsedUser parsedPassword
     case loginResult of
         Left err' -> liftIO (print err') >> sendMsg err' >> loginPrompt
-        Right user' -> do
+        Right user -> do
+            userIsLoggedIn (userUsername user)
             let stateMap = globalActiveUsers curState
-            writeTVarR . GlobalState $ M.insert (userUsername user') (user', thread) stateMap
-            liftIO $ print $ userUsername user' +++ " Logged In"
+            writeTVarR . GlobalState $ M.insert (userUsername user) (user, thread) stateMap
+            liftIO $ print $ userUsername user +++ " Logged In"
             sendMsg "\r\nLogin Succesful"
             userLoop
 
+-- TODO: Refactor and simplify:
 registerPrompt :: ReaderT ThreadEnv IO ()
 registerPrompt = do
     conn <- asks threadEnvConn
@@ -216,7 +236,7 @@ registerPrompt = do
                 Nothing -> registerPrompt
                 Just pass -> void . liftIO $ addUser conn (User 0 username pass) 
 
-
+-- TODO: Refactor and simplify:
 gamePrompt :: Maybe (User, ThreadId) -> ReaderT ThreadEnv IO ()
 gamePrompt Nothing = loginPrompt
 gamePrompt (Just (user, _)) = do
@@ -249,16 +269,17 @@ gamePrompt (Just (user, _)) = do
 
 userLoop :: ReaderT ThreadEnv IO ()
 userLoop = do
-    stateTVar <- asks threadEnvStateTVar
-
-    state <- liftIO $ readTVarIO stateTVar
+    state <- readState
     thread <- liftIO myThreadId
+    let user = find (\(_, tid) -> tid == thread) (globalActiveUsers state)
+
     readTChanLoop
     liftIO $ print state
     liftIO $ print thread
-    let user = find (\(_, tid) -> tid == thread) $ globalActiveUsers state
 
-    gamePrompt user 
+    case user of
+        Just user' -> gamePrompt user
+        Nothing -> mainMenuPrompt
     userLoop 
     
 mainLoop :: ReaderT Env IO ()
@@ -270,9 +291,9 @@ mainLoop = forever $ do
     rChannel <- liftIO . atomically $ dupTChan wChannel
     (sock', _) <- lift $ accept sock
 
-    void . forkReader . forever . liftIO . atomically $ readTChan rChannel
+    --void . forkReader . forever . liftIO . atomically $ readTChan rChannel
 
-    lift $ do
+    liftIO $ do
         putStrLn "Got connection, handling query"
         let threadEnv = ThreadEnv conn sock' stateTVar wChannel rChannel
         forkIO $ runReaderT userLoop threadEnv
