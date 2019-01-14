@@ -105,10 +105,10 @@ prompt :: Socket -> ByteString -> IO ByteString
 prompt sock prefix = do
     sendAll sock (BS.append prefix (BS.pack [255, 249]))
     rawMsg <- recv sock 1024
-    print $ BS.append (encodeUtf8 "raw message: ") rawMsg
+    --print $ BS.append (encodeUtf8 "raw message: ") rawMsg
     let (MessageState msg _) = processStream rawMsg
     case msg of
         Nothing -> prompt sock ""
-        Just msg' -> do
-            print $ BS.append (encodeUtf8 "message: ") msg'
+        Just msg' -> 
+            --print $ BS.append (encodeUtf8 "message: ") msg'
             return msg'

@@ -4,8 +4,10 @@ module Main where
 import Control.Concurrent
 import Control.Concurrent.STM hiding (stateTVar)
 --import Control.Exception (bracket)
-import Control.Monad (forever, void)
+import Control.Monad (forever, void, when)
+import Control.Monad.Fix
 import Control.Monad.IO.Class (liftIO)
+--import Control.Monad.LoopWhile
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Class
 import Data.List (intersperse, find, intercalate)
@@ -25,7 +27,7 @@ import Text.Trifecta (parseByteString)
 
 import SqliteLib
 import TelnetLib (prompt)
-import Types (Command(..), Env(..), GlobalState(..), ThreadEnv(..), User(..))
+import Types (Command(..), Env(..), GlobalState(..), ThreadEnv(..), User(..), Msg)
 import Parser
 
 
@@ -135,7 +137,7 @@ writeTVarR state = do
     stateTVar <- asks threadEnvStateTVar
     liftIO . atomically $ writeTVar stateTVar state
 
-broadcast :: String -> ReaderT ThreadEnv IO ()
+broadcast :: Text -> ReaderT ThreadEnv IO ()
 broadcast msg = do
     wChannel <- asks threadEnvWChannel
     liftIO . atomically $ writeTChan wChannel msg
@@ -166,7 +168,19 @@ readTChanLoop :: ReaderT ThreadEnv IO ()
 readTChanLoop = void . forkReader . forever $ do
     rChannel <- asks threadEnvRChannel
     msg <- liftIO . atomically $ readTChan rChannel
-    sendMsg (T.pack msg)
+    sendMsg msg
+
+drainTChanLoop :: TChan a -> ReaderT r IO ()
+drainTChanLoop rChannel =
+    void . forkReader . forever . liftIO . atomically $ readTChan rChannel 
+
+drainTChanLoop' :: TChan a -> ReaderT r IO ()
+drainTChanLoop' rChannel = do
+    isEmpty <- liftIO . atomically $ isEmptyTChan rChannel 
+    return isEmpty
+    when isEmpty $ return ()
+    liftIO . atomically $ readTChan rChannel
+    drainTChanLoop' rChannel
 
 -- TODO: Cleanup this function:
 whois :: GlobalState -> Text
@@ -185,10 +199,11 @@ mainMenuPrompt = do
     
     eCommand <- liftIO $ runParse <$> prompt sock "> "
     case eCommand of
-        Left err' -> sendMsg "Invalid Command" >> mainMenuPrompt 
+        Left _ -> sendMsg "Invalid Command" >> mainMenuPrompt 
         Right Exit -> return ()
         Right Login -> loginPrompt
         Right Register -> return ()
+        _  -> return ()
 
 -- TODO: Refactor and simplify:
 loginPrompt :: ReaderT ThreadEnv IO ()
@@ -259,7 +274,8 @@ gamePrompt (Just (user, _)) = do
             sendMsg "Shutting Down! Goodbye!" 
             liftIO (SQLite.close conn >> close sock >> exitSuccess)
         Right Whois -> sendMsg (whois state)
-        Right (Say msg) -> broadcast . T.unpack $ T.concat ["<", userUsername user, "> ", msg]
+        Right (Say msg) -> broadcast $ T.concat ["<", userUsername user, "> ", msg]
+        Right _ -> return ()
         Left err' -> sendMsg "Command not recognized" >> liftIO (print err')
 
 
@@ -269,18 +285,20 @@ gamePrompt (Just (user, _)) = do
 
 userLoop :: ReaderT ThreadEnv IO ()
 userLoop = do
-    state <- readState
+    --state <- readState
+    stateTVar <- asks threadEnvStateTVar
+    state <- liftIO $ readTVarIO stateTVar
     thread <- liftIO myThreadId
-    let user = find (\(_, tid) -> tid == thread) (globalActiveUsers state)
-
     readTChanLoop
     liftIO $ print state
     liftIO $ print thread
+    let user = find (\(_, tid) -> tid == thread) (globalActiveUsers state)
 
-    case user of
-        Just user' -> gamePrompt user
-        Nothing -> mainMenuPrompt
-    userLoop 
+    gamePrompt user
+    userLoop
+    --case user of
+    --    Just user' -> gamePrompt user >> userLoop
+    --    Nothing -> gamePrompt user >> userLoop--mainMenuPrompt
     
 mainLoop :: ReaderT Env IO ()
 mainLoop = forever $ do
@@ -290,8 +308,12 @@ mainLoop = forever $ do
     wChannel<- asks envWChannel
     rChannel <- liftIO . atomically $ dupTChan wChannel
     (sock', _) <- lift $ accept sock
-
-    --void . forkReader . forever . liftIO . atomically $ readTChan rChannel
+    -- This should consume all the messages in the user's rChannel
+    -- until the user's mainLoop forks. However it seems to continue
+    -- consuming all messages from rChannel after the fork.
+    --void . forkReader . forever . liftIO . atomically $ readTChan rChannel 
+    drain <- forkReader $ drainTChanLoop' rChannel
+    --liftIO $ killThread drain
 
     liftIO $ do
         putStrLn "Got connection, handling query"

@@ -30,7 +30,7 @@ data ThreadEnv =
               , threadEnvRChannel  :: TChan Msg
               }
 
-type Msg = String
+type Msg = Text
 type Username = Text
 
 newtype GlobalState = 
