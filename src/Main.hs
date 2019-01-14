@@ -139,8 +139,10 @@ writeTVarR state = do
 
 broadcast :: Text -> ReaderT ThreadEnv IO ()
 broadcast msg = do
+    msgNum' <- asks threadEnvMsgNum
+    msgNum <- liftIO $ readTVarIO msgNum'
     wChannel <- asks threadEnvWChannel
-    liftIO . atomically $ writeTChan wChannel msg
+    liftIO . atomically $ writeTChan wChannel (msg, msgNum + 1)
 
 sendMsg :: Text -> ReaderT ThreadEnv IO ()
 sendMsg msg = do
@@ -167,7 +169,7 @@ forkReader action = do
 readTChanLoop :: ReaderT ThreadEnv IO ()
 readTChanLoop = void . forkReader . forever $ do
     rChannel <- asks threadEnvRChannel
-    msg <- liftIO . atomically $ readTChan rChannel
+    (msg, _) <- liftIO . atomically $ readTChan rChannel
     sendMsg msg
 
 drainTChanLoop :: TChan a -> ReaderT r IO ()
@@ -177,10 +179,19 @@ drainTChanLoop rChannel =
 drainTChanLoop' :: TChan a -> ReaderT r IO ()
 drainTChanLoop' rChannel = do
     isEmpty <- liftIO . atomically $ isEmptyTChan rChannel 
-    return isEmpty
     when isEmpty $ return ()
-    liftIO . atomically $ readTChan rChannel
+    void . liftIO . atomically $ readTChan rChannel
     drainTChanLoop' rChannel
+
+readTChanLoop' :: ReaderT ThreadEnv IO ()
+readTChanLoop' = void . forkReader . forever $ do
+    latestMsgNum' <- asks threadEnvMsgNum
+    latestMsgNum <- liftIO $ readTVarIO latestMsgNum'
+
+    rChannel <- asks threadEnvRChannel
+    (msg, msgNum) <- liftIO . atomically $ readTChan rChannel
+    when (latestMsgNum >= msgNum) $ sendMsg msg
+
 
 -- TODO: Cleanup this function:
 whois :: GlobalState -> Text
@@ -191,15 +202,15 @@ whois curState = T.pack . intercalate ", " . fmap (show . fst) $ M.elems $ globa
 ---- Prompts ----
 -----------------
 
-mainMenuPrompt :: ReaderT ThreadEnv IO ()
-mainMenuPrompt = do
+mainMenuPrompt :: Int -> ReaderT ThreadEnv IO ()
+mainMenuPrompt msgNum = do
     --thread <- liftIO myThreadId
     sock <- asks threadEnvSock
     mapM_ sendMsg ["Welcome to hMud", "Options:", "register", "login", "exit"]
     
     eCommand <- liftIO $ runParse <$> prompt sock "> "
     case eCommand of
-        Left _ -> sendMsg "Invalid Command" >> mainMenuPrompt 
+        Left _ -> sendMsg "Invalid Command" >> mainMenuPrompt msgNum
         Right Exit -> return ()
         Right Login -> loginPrompt
         Right Register -> return ()
@@ -208,7 +219,7 @@ mainMenuPrompt = do
 -- TODO: Refactor and simplify:
 loginPrompt :: ReaderT ThreadEnv IO ()
 loginPrompt = do
-    (ThreadEnv conn sock _ _ _) <- ask
+    (ThreadEnv conn sock _ _ _ _) <- ask
     curState <- readState
     thread <- liftIO myThreadId
 
@@ -259,6 +270,7 @@ gamePrompt (Just (user, _)) = do
     conn <- asks threadEnvConn
     sock <- asks threadEnvSock
     state <- liftIO $ readTVarIO stateTVar
+    msgNum <- asks threadEnvMsgNum
 
     cmd <- liftIO $ prompt sock "> "
     let cmdParse = runParse cmd
@@ -274,7 +286,7 @@ gamePrompt (Just (user, _)) = do
             sendMsg "Shutting Down! Goodbye!" 
             liftIO (SQLite.close conn >> close sock >> exitSuccess)
         Right Whois -> sendMsg (whois state)
-        Right (Say msg) -> broadcast $ T.concat ["<", userUsername user, "> ", msg]
+        Right (Say msg) -> broadcast (T.concat ["<", userUsername user, "> ", msg])
         Right _ -> return ()
         Left err' -> sendMsg "Command not recognized" >> liftIO (print err')
 
@@ -289,7 +301,8 @@ userLoop = do
     stateTVar <- asks threadEnvStateTVar
     state <- liftIO $ readTVarIO stateTVar
     thread <- liftIO myThreadId
-    readTChanLoop
+    readTChanLoop'
+
     liftIO $ print state
     liftIO $ print thread
     let user = find (\(_, tid) -> tid == thread) (globalActiveUsers state)
@@ -301,10 +314,11 @@ userLoop = do
     --    Nothing -> gamePrompt user >> userLoop--mainMenuPrompt
     
 mainLoop :: ReaderT Env IO ()
-mainLoop = forever $ do
+mainLoop = do
     stateTVar <- asks envStateTVar
     conn <- asks envConn
     sock <- asks envSock
+    msgNum <- asks envMsgNum
     wChannel<- asks envWChannel
     rChannel <- liftIO . atomically $ dupTChan wChannel
     (sock', _) <- lift $ accept sock
@@ -312,13 +326,14 @@ mainLoop = forever $ do
     -- until the user's mainLoop forks. However it seems to continue
     -- consuming all messages from rChannel after the fork.
     --void . forkReader . forever . liftIO . atomically $ readTChan rChannel 
-    drain <- forkReader $ drainTChanLoop' rChannel
+    --drain <- forkReader $ drainTChanLoop' rChannel
     --liftIO $ killThread drain
 
-    liftIO $ do
+    void . liftIO $ do
         putStrLn "Got connection, handling query"
-        let threadEnv = ThreadEnv conn sock' stateTVar wChannel rChannel
+        let threadEnv = ThreadEnv conn sock' stateTVar wChannel rChannel msgNum
         forkIO $ runReaderT userLoop threadEnv
+    mainLoop
 
 createSocket :: Integer -> IO Socket
 createSocket port = do
@@ -336,7 +351,7 @@ main = withSocketsDo $ do
     conn <- open "hmud.db"
     gameSock <- createSocket 78
     state <- atomically $ newTVar (GlobalState M.empty)
+    msgNum <- atomically $ newTVar 0
     wChannel <- newTChanIO
-    let env = Env conn gameSock state wChannel
-
+    let env = Env conn gameSock state wChannel msgNum
     runReaderT mainLoop env 
