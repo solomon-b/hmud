@@ -20,7 +20,6 @@ data Env =
         , envSock      :: Socket
         , envStateTVar :: TVar GlobalState
         , envWChannel  :: TChan Msg
-        , envMsgNum    :: TVar Int
         } 
 
 data ThreadEnv =
@@ -29,10 +28,9 @@ data ThreadEnv =
               , threadEnvStateTVar :: TVar GlobalState
               , threadEnvWChannel  :: TChan Msg
               , threadEnvRChannel  :: TChan Msg
-              , threadEnvMsgNum    :: TVar Int
               }
 
-type Msg = (Text, Int)
+type Msg = Text
 type Username = Text
 
 newtype GlobalState = 
