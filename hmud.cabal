@@ -22,7 +22,7 @@ executable hmud
                      , Parser
   build-depends:       base >= 4.7 && < 5
                      , bytestring
-                     , containers
+                     --, containers
                      , mtl
                      , network
                      , raw-strings-qq
@@ -40,10 +40,10 @@ library
   hs-source-dirs:      src
   build-depends:       base >=4.7 && <5
                      , bytestring
-                     , containers
+                     --, containers
                      , raw-strings-qq
                      , sqlite-simple
-                     , stm
+                     --, stm
                      , text
                      , network
                      , mtl
