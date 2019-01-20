@@ -30,7 +30,7 @@ parserAddUser = token $ do
     void $ char ' '
     username' <- word
     password' <- word
-    return $ AddUser (User 0 username' password' 1)
+    return $ AddUser (User 0 username' password')
 
 parserExit :: Parser Command
 parserExit = token $ do

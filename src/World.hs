@@ -32,5 +32,13 @@ kitchen = Room
     , roomAdjacent = M.fromList [(S, 1)]
     }
 
+
+rooms :: [Room]
+rooms = [kitchen, frontHall]
+
 world :: World
-world = M.fromList [(1, kitchen), (2, frontHall)]
+world = M.fromList $ fmap f rooms
+    where f room = (roomRoomId room, room)
+
+playerMap :: PlayerMap
+playerMap = M.map (const []) world

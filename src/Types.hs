@@ -40,7 +40,7 @@ data GlobalState =
     GlobalState { globalActiveUsers :: ActiveUsers
                 , globalWorld       :: World
                 , globalPlayerMap   :: PlayerMap
-                } 
+                } deriving Show
 
 
 -------------------
@@ -64,7 +64,7 @@ data Room =
          }
 
 instance Show Room where
-    show (Room name desc rid dir) =
+    show (Room name desc _ dir) =
         show name ++ "\n" ++
         show desc ++ "\n" ++
         "Exits: " ++ show (M.keys dir)
@@ -101,7 +101,6 @@ data User =
     User { userUserId   :: Integer
          , userUsername :: Text
          , userPassword :: Text
-         , userLocation :: RoomId
          } deriving (Eq, Show)
 
 type UserRow = (Null, Text, Text)
@@ -112,8 +111,8 @@ data DuplicateData = DuplicateData
 instance Exception DuplicateData
 
 instance FromRow User where
-    fromRow = User <$> field <*> field <*> field <*> pure 1
+    fromRow = User <$> field <*> field <*> field
 
 instance ToRow User where
-    toRow (User id_ username' password' _) = toRow (id_, username', password')
+    toRow (User id_ username' password') = toRow (id_, username', password')
 

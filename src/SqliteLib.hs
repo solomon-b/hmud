@@ -10,7 +10,7 @@ module SqliteLib
     ) where
 
 import Control.Exception
-import Data.Text (Text, concat)
+import Data.Text (Text, concat, pack)
 import Database.SQLite.Simple
 import qualified Database.SQLite.Simple as SQLite
 import Database.SQLite.Simple.Types
@@ -77,11 +77,12 @@ insertUser conn user =
                 return $ Right user'
 
 formatUser :: User -> Text
-formatUser (User _ username' _ _) =
-    Data.Text.concat ["Username: ", username']
+formatUser (User uid name _) =
+    Data.Text.concat [ "Player: "  , name, "\t"
+                     , "UID: "     , (pack . show) uid]
 
 constructUser :: [Text] -> Either Text User
 constructUser xs =
-    let f [username,password] = Right $ User 0 username password 1
+    let f [username,password] = Right $ User 0 username password
         f _ = Left "Please enter a valid user record"
     in f xs
