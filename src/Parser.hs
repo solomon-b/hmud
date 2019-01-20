@@ -23,36 +23,42 @@ genParser (str, mStr, comm) = token $
             void $ symbol str
             return comm
 
-commands :: [(String, Maybe String, Command)]
-commands = [ ("exit"      , Just "quit" , Exit)
-           , ("shutdown"  , Nothing     , Shutdown)
-           , ("register"  , Just "r"    , Register)
-           , ("login"     , Just "l"    , Login)
-           , ("logout"    , Nothing     , Logout)
-           , ("whois"     , Nothing     , Whois)
-           , ("look"      , Just "l"    , Look)
-           , ("getUsers"  , Nothing     , GetUsers)
-           , ("north"     , Just "n"    , Move N)
-           , ("south"     , Just "s"    , Move S)
-           , ("east"      , Just "e"    , Move E)
-           , ("west"      , Just "w"    , Move W)
-           , ("northeast" , Just "ne"   , Move NE)
-           , ("northwest" , Just "nw"   , Move NW)
-           , ("southeast" , Just "se"   , Move SE)
-           , ("southwest" , Just "sw"   , Move SW)
+userCommands :: [(String, Maybe String, Command)]
+userCommands = 
+             [ ("exit"      , Just "quit" , Exit)
+             , ("register"  , Just "r"    , Register)
+             , ("login"     , Just "l"    , Login)
+             , ("logout"    , Nothing     , Logout)
+             , ("whois"     , Nothing     , Whois)
+             , ("look"      , Just "l"    , Look)
+             , ("north"     , Just "n"    , Move N)
+             , ("south"     , Just "s"    , Move S)
+             , ("east"      , Just "e"    , Move E)
+             , ("west"      , Just "w"    , Move W)
+             , ("northeast" , Just "ne"   , Move NE)
+             , ("northwest" , Just "nw"   , Move NW)
+             , ("southeast" , Just "se"   , Move SE)
+             , ("southwest" , Just "sw"   , Move SW)
 
-           --, ("getUser"  , Nothing    , GetUser)
-           --, ("addUser"  , Nothing    , AddUser)
-           --, ("say"      , Nothing    , Say)
-           --, ("echo"     , Echo       , Echo)
-           ]
+             --, ("getUser"  , Nothing    , GetUser)
+             --, ("say"      , Nothing    , Say)
+             --, ("echo"     , Echo       , Echo)
+             ]
+
+adminCommands :: [(String, Maybe String, Command)]
+adminCommands = 
+              [ ("getUsers"  , Nothing     , GetUsers)
+              , ("shutdown"  , Nothing     , Shutdown)
+            --, ("addUser"  , Nothing    , AddUser)
+              ]
 
 commandParsers :: [Parser Command]
 commandParsers = parserGetUser
                : parserAddUser
                : parserSay
                : parserEcho
-               : fmap genParser commands
+               : fmap genParser (userCommands ++ adminCommands)
+
 
 parserGetUser :: Parser Command
 parserGetUser = token $ do
