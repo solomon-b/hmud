@@ -290,7 +290,14 @@ showUsersInRoom rid = do
     (GlobalState activeUsers' _ playerMap') <- readState
     case playerMap' M.!? rid of
         Nothing -> return []
-        Just uids -> return $ fmap (\uid -> fst $ activeUsers' M.! uid) uids
+        Just uids -> do
+            mUid <- getUserId
+            case mUid of
+                Nothing -> liftIO $ putStrLn "User is not logged in" >> return []
+                Just uid -> 
+                    let users = fmap (\uid' -> fst $ activeUsers' M.! uid') uids
+                        filteredUsers = filter (\(User userId _ _) -> userId /= uid) users
+                    in return filteredUsers
 
 showRoom :: ReaderT ThreadEnv IO ()
 showRoom = do
