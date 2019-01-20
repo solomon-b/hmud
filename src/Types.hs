@@ -101,7 +101,7 @@ data User =
     User { userUserId   :: Integer
          , userUsername :: Text
          , userPassword :: Text
-         } deriving (Eq, Show)
+         } deriving Eq
 
 type UserRow = (Null, Text, Text)
 
@@ -116,3 +116,5 @@ instance FromRow User where
 instance ToRow User where
     toRow (User id_ username' password') = toRow (id_, username', password')
 
+instance Show User where
+    show user = show (userUsername user)

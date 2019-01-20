@@ -41,9 +41,9 @@ import Parser
 import World
 
 
---------------------------
----- Server Functions ----
---------------------------
+------------------------
+---- Misc Functions ----
+------------------------
 
 (+++) :: Text -> Text -> Text
 (+++) = T.append
@@ -78,7 +78,6 @@ validatePassword pass1BS pass2BS = do
         (Right pass1, Right pass2) | pass1 == pass2 -> return $ Just pass1
         _ -> return Nothing
     
-
 validateUsername :: ByteString -> ReaderT ThreadEnv IO (Maybe Text)
 validateUsername usernameBS = do
     conn <- asks threadEnvConn
@@ -90,9 +89,6 @@ validateUsername usernameBS = do
             case eUser of
                 Right _ -> return Nothing
                 Left _ -> return $ Just username
-
---userAlreadyExists :: Text -> ReaderT ThreadEnv IO ()
---userAlreadyExists username = undefined
 
 userIsLoggedIn :: UserId -> ReaderT ThreadEnv IO ()
 userIsLoggedIn userId = do
@@ -309,7 +305,7 @@ showRoom = do
             sendMsg $ roomName room
             sendMsg $ roomDescription room
             sendMsg . T.pack $ "You see: " ++ show uids
-            sendMsg . T.pack $ "Exits: " ++ show (roomAdjacent room)
+            sendMsg . T.pack $ "Exits: " ++ show (M.keys $ roomAdjacent room)
      
 
 -----------------
