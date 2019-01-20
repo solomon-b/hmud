@@ -32,6 +32,7 @@ import Types ( Command(..)
              , User(..)
              , Direction(..)
              , Room(..)
+             , ActiveUsers
              , PlayerMap
              , RoomId
              , UserId
@@ -187,6 +188,20 @@ whois state =
        formatedUsers = formatUser . fst <$> users
    in T.concat . intersperse (T.pack "\n") $ formatedUsers
 
+getUserId :: ReaderT ThreadEnv IO (Maybe UserId)
+getUserId = do
+    activeUsers <- globalActiveUsers <$> readState
+    thread <- liftIO myThreadId
+    return $ userUserId <$> findUserByThread thread activeUsers
+
+findUserByThread :: ThreadId -> ActiveUsers -> Maybe User
+findUserByThread tid activeUsers =
+    let users :: [(UserId, (User, ThreadId))]
+        users = M.toList activeUsers
+        f :: (UserId, (User, ThreadId)) -> Bool
+        f (_, (_, tid')) = tid == tid'
+    in fst . snd <$> find f users
+
 
 --------------------------
 ---- Player Movement  ----
@@ -212,18 +227,22 @@ findInPlayerMap uid playerMap' =
 
 adjustPlayerMap :: UserId -> RoomId -> PlayerMap -> PlayerMap
 adjustPlayerMap uid rid playerMap' =
-    case findInPlayerMap uid playerMap of
+    case findInPlayerMap uid playerMap' of
         Nothing -> addToPlayerMap uid rid playerMap'
         Just (rid', _) -> swapInPlayerMap uid rid' rid playerMap'
 
 adjustPlayerLocation :: UserId -> RoomId -> ReaderT ThreadEnv IO ()
 adjustPlayerLocation uid rid = do
     (GlobalState activeUsers w playerMap') <- readState
+    liftIO $ print $ "uid: " ++ show uid
+    liftIO $ print $ "active users: " ++ show activeUsers
     case activeUsers M.!? uid of
         Nothing -> liftIO $ putStrLn "User not found"
         Just _ -> 
             let playerMap'' = adjustPlayerMap uid rid playerMap'
-            in setState (GlobalState activeUsers w playerMap'')
+            in do
+                liftIO $ print playerMap''
+                setState (GlobalState activeUsers w playerMap'')
 
 getUserLocation :: ReaderT ThreadEnv IO (Either Text Room)
 getUserLocation = do
@@ -245,12 +264,17 @@ movePlayer dir = do
     case eRoom of
         Left err -> liftIO $ print err
         Right room -> do
-            let uid = roomRoomId room
-            case roomAdjacent room M.!? dir of
-                Nothing -> liftIO $ putStrLn "No such room"
-                Just newRid -> do
-                    adjustPlayerLocation uid newRid
-                    showRoom
+            mUid <- getUserId 
+            case mUid of
+                Nothing -> liftIO $ putStrLn "No user logged in"
+                Just uid ->
+                    case roomAdjacent room M.!? dir of
+                        Nothing -> do
+                            liftIO $ putStrLn "No such room"
+                            sendMsg "There is no path in that direction"
+                        Just newRid -> do
+                            adjustPlayerLocation uid newRid
+                            showRoom
 
 spawnPlayer :: ReaderT ThreadEnv IO ()
 spawnPlayer = do
@@ -261,8 +285,6 @@ spawnPlayer = do
         Nothing -> liftIO $ putStrLn "user is not logged in"
         Just uid -> adjustPlayerLocation uid 1 >> liftIO (putStrLn "..Player Spawned")
     
-
--- TODO: FIX THIS: 
 showUsersInRoom :: RoomId -> ReaderT ThreadEnv IO [User]
 showUsersInRoom rid = do
     (GlobalState activeUsers' _ playerMap') <- readState
