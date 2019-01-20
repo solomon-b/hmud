@@ -4,10 +4,8 @@ module Main where
 import Control.Concurrent
 import Control.Concurrent.STM hiding (stateTVar)
 --import Control.Exception (bracket)
-import Control.Monad (forever, void, when)
-import Control.Monad.Fix
+import Control.Monad (forever, void)
 import Control.Monad.IO.Class (liftIO)
---import Control.Monad.LoopWhile
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Class
 import Data.List (intersperse, find, intercalate)
@@ -17,7 +15,7 @@ import Data.ByteString as BS (pack, append)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Text.Encoding (decodeUtf8, encodeUtf8)
+import Data.Text.Encoding (encodeUtf8)
 import Database.SQLite.Simple (Connection, open, query_)
 import qualified Database.SQLite.Simple as SQLite
 import Network.Socket
@@ -27,8 +25,20 @@ import Text.Trifecta (parseByteString)
 
 import SqliteLib
 import TelnetLib (prompt)
-import Types (Command(..), Env(..), GlobalState(..), ThreadEnv(..), User(..), Msg)
+import Types ( Command(..)
+             , Env(..)
+             , GlobalState(..)
+             , ThreadEnv(..)
+             , User(..)
+             , Direction(..)
+             , Room(..)
+             , ActiveUsers
+             , PlayerMap
+             , RoomId
+             , UserId
+             )
 import Parser
+import World
 
 
 --------------------------
@@ -81,25 +91,22 @@ validateUsername usernameBS = do
                 Right _ -> return Nothing
                 Left _ -> return $ Just username
 
-userAlreadyExists :: Text -> ReaderT ThreadEnv IO ()
-userAlreadyExists username = undefined
+--userAlreadyExists :: Text -> ReaderT ThreadEnv IO ()
+--userAlreadyExists username = undefined
 
-userIsLoggedIn :: Text -> ReaderT ThreadEnv IO ()
-userIsLoggedIn username = do
+userIsLoggedIn :: UserId -> ReaderT ThreadEnv IO ()
+userIsLoggedIn userId = do
     curState <- readState
     let stateMap = globalActiveUsers curState
-        mUser = M.lookup username stateMap
+        mUser = M.lookup userId stateMap
     case mUser of
-        Just mUser -> do
+        Just _ -> do
             sendMsg "You are already logged in!"
             loginPrompt
         Nothing -> return ()
 
-threadHasUser :: ThreadId -> ReaderT ThreadEnv IO ()
-threadHasUser thread = undefined
-
 addUser :: Connection -> User -> IO Text
-addUser conn (User _ username password) = do
+addUser conn (User _ username password _) = do
     eInserted <- insertUser conn [username, password]
     case eInserted of
         Left err' -> print err' >> return "Problem adding user"
@@ -123,17 +130,18 @@ getUsers conn = do
 logout :: User -> ReaderT ThreadEnv IO ()
 logout currUser = do
     stateTVar <- asks threadEnvStateTVar
-    stateMap <- liftIO $ globalActiveUsers <$> readTVarIO stateTVar
-    writeTVarR $ GlobalState $ M.delete username stateMap
-    where username = userUsername currUser
+    (GlobalState activePlayers _ playerMap) <- liftIO $ readTVarIO stateTVar
+    let activePlayers' = M.delete userId activePlayers
+    setState $ GlobalState activePlayers' world playerMap
+    where userId = userUserId currUser
 
 readState :: ReaderT ThreadEnv IO GlobalState
 readState = do
     stateTVar <- asks threadEnvStateTVar
     liftIO $ readTVarIO stateTVar
 
-writeTVarR :: GlobalState -> ReaderT ThreadEnv IO ()
-writeTVarR state = do
+setState :: GlobalState -> ReaderT ThreadEnv IO ()
+setState state = do
     stateTVar <- asks threadEnvStateTVar
     liftIO . atomically $ writeTVar stateTVar state
 
@@ -179,6 +187,95 @@ whois :: GlobalState -> Text
 whois curState = T.pack . intercalate ", " . fmap (show . fst) $ M.elems $ globalActiveUsers curState
 
 
+--------------------------
+---- Player Movement  ----
+--------------------------
+
+removeFromLocation :: UserId -> RoomId -> PlayerMap -> PlayerMap
+removeFromLocation uid = 
+    M.adjust (filter (/= uid)) 
+
+addToLocation :: UserId -> RoomId -> PlayerMap -> PlayerMap
+addToLocation uid = 
+    M.adjust ((:) uid)
+
+swapLocation :: UserId -> RoomId -> RoomId -> PlayerMap -> PlayerMap
+swapLocation uid rid rid' =
+    addToLocation uid rid' . removeFromLocation uid rid
+
+userUpdateLocation :: User -> RoomId -> User
+userUpdateLocation (User uid username pass _)= User uid username pass
+
+updateActiveUsers :: ActiveUsers -> User -> ActiveUsers
+updateActiveUsers activeUsers user =
+    let uid = userUserId user 
+        (_, thread) = activeUsers M.! uid
+    in M.insert uid (user, thread) activeUsers
+
+setPlayerLocation :: PlayerMap -> UserId -> RoomId -> PlayerMap
+setPlayerLocation playerMap uid rid = M.adjust ((:) uid) rid playerMap
+
+adjustPlayerLocation :: UserId -> RoomId -> ReaderT ThreadEnv IO ()
+adjustPlayerLocation uid rid = do
+    (GlobalState activeUsers w playerMap) <- readState
+    case activeUsers M.!? uid of
+        Nothing -> liftIO $ putStrLn "User not found"
+        Just (user, _) -> 
+            let rid' = userLocation user
+                playerMap' = swapLocation uid rid' rid playerMap
+                activeUsers' = updateActiveUsers activeUsers (userUpdateLocation user rid)
+            in setState (GlobalState activeUsers' w playerMap')
+
+getUserLocation :: ReaderT ThreadEnv IO (Either Text Room)
+getUserLocation = do
+    (GlobalState activeUsers w playerMap) <- readState
+    uidTVar <- asks threadEnvUserId 
+    mUid <- liftIO $ readTVarIO uidTVar
+    case mUid of
+        Nothing -> liftIO . pure $ Left "user is not logged in"
+        Just uid ->
+            case activeUsers M.!? uid of
+                Nothing -> liftIO . pure $ Left "user is not logged in"
+                Just (user, thread) ->
+                    case w M.!? userLocation user of
+                        Nothing -> liftIO . pure $ Left "no such room"
+                        Just room -> liftIO . pure $ Right room
+
+
+movePlayer :: Direction -> ReaderT ThreadEnv IO ()
+movePlayer dir = do
+    eRoom <- getUserLocation
+    case eRoom of
+        Left err -> liftIO $ print err
+        Right room -> do
+            let uid = roomRoomId room
+            case roomAdjacent room M.!? dir of
+                Nothing -> liftIO $ print "No such room"
+                Just newRid -> do
+                    adjustPlayerLocation uid newRid
+                    showRoom
+
+-- TODO: FIX THIS: 
+showUsersInRoom :: RoomId -> ReaderT ThreadEnv IO [UserId]
+showUsersInRoom rid = do
+    (GlobalState activeUsers _ playerMap) <- readState
+    case playerMap M.!? rid of
+        Nothing -> return []
+        Just uids -> return uids
+
+showRoom :: ReaderT ThreadEnv IO ()
+showRoom = do
+    eRoom <- getUserLocation
+    case eRoom of
+        Left err -> liftIO $ print err
+        Right room -> do
+            uids <- showUsersInRoom $ roomRoomId room
+            sendMsg $ roomName room
+            sendMsg $ roomDescription room
+            sendMsg . T.pack $ "You see: " ++ show uids
+            sendMsg . T.pack $ "Exits: " ++ show (roomAdjacent room)
+     
+
 -----------------
 ---- Prompts ----
 -----------------
@@ -199,8 +296,8 @@ mainMenuPrompt = do
 -- TODO: Refactor and simplify:
 loginPrompt :: ReaderT ThreadEnv IO ()
 loginPrompt = do
-    (ThreadEnv conn sock _ _ _) <- ask
-    curState <- readState
+    (ThreadEnv conn sock _ _ _ uidTVar) <- ask
+    (GlobalState activeUsers _ playerMap) <- readState
     thread <- liftIO myThreadId
 
     parsedUser <- liftIO $ runWordParse <$> prompt sock "Login: "
@@ -212,9 +309,10 @@ loginPrompt = do
     case loginResult of
         Left err' -> liftIO (print err') >> sendMsg err' >> loginPrompt
         Right user -> do
-            userIsLoggedIn (userUsername user)
-            let stateMap = globalActiveUsers curState
-            writeTVarR . GlobalState $ M.insert (userUsername user) (user, thread) stateMap
+            userIsLoggedIn (userUserId user)
+            let activeUsersMap = M.insert (userUserId user) (user, thread) activeUsers
+            liftIO . atomically $ writeTVar uidTVar (Just $ userUserId user)
+            setState $ GlobalState activeUsersMap world playerMap
             liftIO $ print $ userUsername user +++ " Logged In"
             sendMsg "\r\nLogin Succesful"
             userLoop
@@ -240,7 +338,7 @@ registerPrompt = do
             case passwordM of
                 -- TODO: Only require the user to re-enter password
                 Nothing -> registerPrompt
-                Just pass -> void . liftIO $ addUser conn (User 0 username pass) 
+                Just pass -> void . liftIO $ addUser conn (User 0 username pass 1) 
 
 -- TODO: Refactor and simplify:
 gamePrompt :: Maybe (User, ThreadId) -> ReaderT ThreadEnv IO ()
@@ -266,6 +364,8 @@ gamePrompt (Just (user, _)) = do
             liftIO (SQLite.close conn >> close sock >> exitSuccess)
         Right Whois -> sendMsg (whois state)
         Right (Say msg) -> broadcast (T.concat ["<", userUsername user, "> ", msg])
+        Right (Move dir) -> movePlayer dir
+        Right Look -> showRoom
         Right _ -> return ()
         Left err' -> sendMsg "Command not recognized" >> liftIO (print err')
 
@@ -282,12 +382,12 @@ userLoop = do
     thread <- liftIO myThreadId
     readTChanLoop
 
-    liftIO $ print state
+    liftIO . print $ globalActiveUsers state
     liftIO $ print thread
     let user = find (\(_, tid) -> tid == thread) (globalActiveUsers state)
 
     case user of
-        Just user' -> gamePrompt user >> userLoop
+        Just _ -> gamePrompt user >> userLoop
         Nothing -> mainMenuPrompt
     
 mainLoop :: ReaderT Env IO ()
@@ -297,12 +397,15 @@ mainLoop = forever $ do
     sock <- asks envSock
     wChannel<- asks envWChannel
     rChannel <- liftIO . atomically $ dupTChan wChannel
+    userIdTvar <- liftIO . atomically $ newTVar Nothing
+
+
     (sock', _) <- lift $ accept sock
     drainTChanLoop rChannel
 
     void . liftIO $ do
         putStrLn "Got connection, handling query"
-        let threadEnv = ThreadEnv conn sock' stateTVar wChannel rChannel
+        let threadEnv = ThreadEnv conn sock' stateTVar wChannel rChannel userIdTvar
         forkIO $ runReaderT userLoop threadEnv
 
 createSocket :: Integer -> IO Socket
@@ -320,7 +423,7 @@ main :: IO ()
 main = withSocketsDo $ do
     conn <- open "hmud.db"
     gameSock <- createSocket 78
-    state <- atomically $ newTVar (GlobalState M.empty)
+    state <- atomically $ newTVar (GlobalState M.empty world M.empty)
     wChannel <- newTChanIO
     let env = Env conn gameSock state wChannel
     runReaderT mainLoop env 

@@ -4,7 +4,6 @@ module TelnetLib where
 --import Control.Concurrent
 import Control.Monad.State
 import Data.Text()
-import Data.Text.Encoding (encodeUtf8)
 import Data.Word
 import Network.Socket hiding (recv)
 import Data.ByteString (ByteString)
@@ -105,10 +104,8 @@ prompt :: Socket -> ByteString -> IO ByteString
 prompt sock prefix = do
     sendAll sock (BS.append prefix (BS.pack [255, 249]))
     rawMsg <- recv sock 1024
-    --print $ BS.append (encodeUtf8 "raw message: ") rawMsg
     let (MessageState msg _) = processStream rawMsg
     case msg of
         Nothing -> prompt sock ""
         Just msg' -> 
-            --print $ BS.append (encodeUtf8 "message: ") msg'
             return msg'

@@ -1,5 +1,6 @@
 module Types where
     
+import qualified Data.Map.Strict as M
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Data.Typeable (Typeable)
@@ -28,14 +29,46 @@ data ThreadEnv =
               , threadEnvStateTVar :: TVar GlobalState
               , threadEnvWChannel  :: TChan Msg
               , threadEnvRChannel  :: TChan Msg
+              , threadEnvUserId    :: TVar (Maybe UserId)
               }
 
 type Msg = Text
 type Username = Text
+type ActiveUsers = Map UserId (User, ThreadId)
 
-newtype GlobalState = 
-    GlobalState { globalActiveUsers :: Map Username (User, ThreadId) } 
-    deriving Show
+data GlobalState = 
+    GlobalState { globalActiveUsers :: ActiveUsers
+                , globalWorld       :: World
+                , globalPlayerMap   :: PlayerMap
+                } 
+
+
+-------------------
+---- The World ----
+-------------------
+
+data Direction = 
+    N | S | E | W | NW | NE | SW | SE | U | D deriving (Eq, Show, Ord)
+
+type Name = Text
+type Description = Text
+type RoomId = Integer
+type World = Map RoomId Room
+type PlayerMap = Map RoomId [UserId]
+
+data Room = 
+    Room { roomName        :: Name
+         , roomDescription :: Description
+         , roomRoomId      :: RoomId
+         , roomAdjacent    :: Map Direction RoomId
+         }
+
+instance Show Room where
+    show (Room name desc rid dir) =
+        show name ++ "\n" ++
+        show desc ++ "\n" ++
+        "Exits: " ++ show (M.keys dir)
+            
 
 
 ----------------
@@ -50,21 +83,25 @@ data Command =
     | Exit
     | Shutdown
     | Register
+    | Look
     | Login
     | Logout
     | Whois
     | Say Text
+    | Move Direction
     deriving (Eq, Show)
 
 
 ------------------
 ---- Database ----
 ------------------
+type UserId = Integer
 
 data User =
     User { userUserId   :: Integer
          , userUsername :: Text
          , userPassword :: Text
+         , userLocation :: RoomId
          } deriving (Eq, Show)
 
 type UserRow = (Null, Text, Text)
@@ -75,8 +112,8 @@ data DuplicateData = DuplicateData
 instance Exception DuplicateData
 
 instance FromRow User where
-    fromRow = User <$> field <*> field <*> field
+    fromRow = User <$> field <*> field <*> field <*> pure 1
 
 instance ToRow User where
-    toRow (User id_ username' password') = toRow (id_, username', password')
+    toRow (User id_ username' password' _) = toRow (id_, username', password')
 

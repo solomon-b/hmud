@@ -77,11 +77,11 @@ insertUser conn user =
                 return $ Right user'
 
 formatUser :: User -> Text
-formatUser (User _ username' _) =
+formatUser (User _ username' _ _) =
     Data.Text.concat ["Username: ", username']
 
 constructUser :: [Text] -> Either Text User
 constructUser xs =
-    let f [username,password] = Right $ User 0 username password
+    let f [username,password] = Right $ User 0 username password 1
         f _ = Left "Please enter a valid user record"
     in f xs
