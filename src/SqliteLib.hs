@@ -7,16 +7,21 @@ module SqliteLib
     , formatUser
     , constructUser
     , selectUsersQuery
+    , getUsersDb
+    , getUserDb
+    , addUserDb
     ) where
 
 import Control.Exception
+import Data.List (intersperse)
 import Data.Text (Text, concat, pack)
-import Database.SQLite.Simple
+import qualified Data.Text as T
+import Database.SQLite.Simple hiding (Error)
 import qualified Database.SQLite.Simple as SQLite
 import Database.SQLite.Simple.Types
 import Text.RawString.QQ
 
-import Types (User(..), UserRow, DuplicateData(..))
+import Types (Error(..), User(..), UserRow, DuplicateData(..))
 
 
 -----------------
@@ -60,11 +65,11 @@ createDatabase = do
     where defUser :: UserRow
           defUser = (Null, "solomon", "pass")
 
-selectUser :: Connection -> Text -> IO (Either Text User)
+selectUser :: Connection -> Text -> IO (Either Error User)
 selectUser conn user = do
     results <- query conn selectUserQuery (Only user)
     case results of
-        [] -> return $ Left "No such user"
+        [] -> return $ Left NoSuchUser
         [user'] -> return $ Right user'
         _ -> throwIO DuplicateData
 
@@ -76,6 +81,7 @@ insertUser conn user =
                 execute conn insertUserQuery user'
                 return $ Right user'
 
+-- TODO: Thse pure functions should probably go somewhere else?
 formatUser :: User -> Text
 formatUser (User uid name _) =
     Data.Text.concat [ "Player: "  , name, "\t"
@@ -86,3 +92,30 @@ constructUser xs =
     let f [username,password] = Right $ User 0 username password
         f _ = Left "Please enter a valid user record"
     in f xs
+
+
+-----------------------------
+---- Getters and Setters ----
+-----------------------------
+
+addUserDb :: Connection -> User -> IO Text
+addUserDb conn (User _ username password) = do
+    eInserted <- insertUser conn [username, password]
+    case eInserted of
+        Left err' -> print err' >> return "Problem adding user"
+        Right res -> return $ formatUser res
+
+getUserDb :: Connection -> Text -> IO Text
+getUserDb conn username = do
+    eUser <- selectUser conn (T.strip username)
+    case eUser of
+        Left err' -> print err' >> return "Problem finding user"
+        Right user' -> return $ formatUser user'
+
+getUsersDb :: Connection -> IO Text
+getUsersDb conn = do
+    rows <- query_ conn selectUsersQuery
+    let usernames = userUsername <$> rows
+        newlineSeperated =
+            T.concat $ intersperse "\n" usernames ++ pure (T.pack "\r\n")
+    return newlineSeperated

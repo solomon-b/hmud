@@ -7,7 +7,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Trifecta
 
-import Types (User(..), Command(..), Direction(..))
+import Types (User(..), Command(..), Direction(..), Error(..))
 
 
 word :: Parser Text
@@ -92,12 +92,12 @@ commandParser :: Parser Command
 commandParser = choice commandParsers
 
 
-runParse :: ByteString -> Either Text Command
+runParse :: ByteString -> Either Error Command
 runParse = resultToEither . parseByteString commandParser mempty
 
-runWordParse :: ByteString -> Either Text Text
+runWordParse :: ByteString -> Either Error Text
 runWordParse bs = resultToEither $ parseByteString word mempty bs
     
-resultToEither :: Result a -> Either Text a
-resultToEither (Failure err') = Left . T.pack $ show err'
+resultToEither :: Result a -> Either Error a
+resultToEither (Failure err') = Left . BadParse . T.pack $ show err'
 resultToEither (Success a) = Right a

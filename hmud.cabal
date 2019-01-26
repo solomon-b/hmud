@@ -18,7 +18,10 @@ executable hmud
   hs-source-dirs:      src
   main-is:             Main.hs
   default-language:    Haskell2010
-  other-modules:       SqliteLib
+  other-modules:       Commands
+                     , Dispatch
+                     , SqliteLib
+                     , State
                      , TelnetLib
                      , Types
                      , Parser
@@ -37,7 +40,10 @@ executable hmud
 
 library
   ghc-options:         -Wall
-  exposed-modules:     SqliteLib
+  exposed-modules:     Commands
+                       Dispatch
+                     , SqliteLib
+                     , State
                      , TelnetLib
                      , Types
                      , Parser

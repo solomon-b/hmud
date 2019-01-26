@@ -43,6 +43,22 @@ data GlobalState =
                 } deriving Show
 
 
+----------------
+---- Errors ----
+----------------
+
+data Error = NoSuchUser
+           | NoSuchRoom
+           | NotLoggedIn
+           | AlreadyLoggedIn
+           | UserNotFound
+           | InvalidPassword
+           | UserHasNoLocation
+           | InvalidCommand
+           | BadParse Text
+           deriving Show
+
+
 -------------------
 ---- The World ----
 -------------------
