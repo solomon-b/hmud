@@ -1,7 +1,29 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Hmud.Account where
--- This module will be pure(?) functions related to player login, logout, and registration
--- NOT CURRENTLY IN USE
+module Account where
+
+--import Control.Exception (bracket)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Reader
+import Data.ByteString (ByteString)
+import qualified Data.Map.Strict as M
+import Data.Text (Text)
+import qualified Data.Text as T
+import Database.SQLite.Simple (Connection)
+import Text.Trifecta (parseByteString)
+
+import Dispatch
+import Parser
+import SqliteLib
+import State
+import Types ( Error(..)
+             , GlobalState(..)
+             , ThreadEnv(..)
+             , User(..)
+             , UserId
+             )
+
+
+-- This module should be PURE functions related to player login, logout, and registration
 
 
 -- I wish this worked:
@@ -12,6 +34,8 @@ module Hmud.Account where
 --    eUser  <- selectUser conn acc'
 --    user <- eUser
 --    return $ checkPassword pass' user
+
+
 
 checkPassword :: Text -> User -> Either Error User
 checkPassword pass acc
@@ -49,7 +73,7 @@ validateUsername usernameBS = do
                 Right _ -> return $ Left NoSuchUser
                 Left _ -> return $ Right username
 
-userIsLoggedIn :: UserId -> ReaderT ThreadEnv IO ()
+userIsLoggedIn :: UserId -> ReaderT ThreadEnv IO Bool
 userIsLoggedIn userId = do
     curState <- readState
     let stateMap = globalActiveUsers curState
@@ -57,5 +81,5 @@ userIsLoggedIn userId = do
     case mUser of
         Just _ -> do
             sendMsg "You are already logged in!"
-            loginPrompt
-        Nothing -> return ()
+            return False
+        Nothing -> return True

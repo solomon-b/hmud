@@ -7,7 +7,6 @@ module Commands where
 import Control.Concurrent
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader
-import qualified Data.Map.Strict as M
 import qualified Database.SQLite.Simple as SQLite
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -23,8 +22,6 @@ import Types ( Command(..)
              , Error(..)
              , GlobalState(..)
              , RoomText(..)
-             , Room(..)
-             , RoomId
              , ThreadEnv(..)
              , User(..)
              )
