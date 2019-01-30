@@ -1,9 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Commands where
+-- This module will be impure functions for all user commands.
+-- NOT CURRENTLY IN USE
+
 
 import Control.Concurrent
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader
+import qualified Data.Map.Strict as M
 import qualified Database.SQLite.Simple as SQLite
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -11,10 +15,16 @@ import Network.Socket
 import System.Exit (exitSuccess)
 
 import Dispatch
+import Room
 import SqliteLib
 import State
 import Types ( Command(..)
+             , Direction
+             , Error(..)
              , GlobalState(..)
+             , RoomText(..)
+             , Room(..)
+             , RoomId
              , ThreadEnv(..)
              , User(..)
              )
@@ -30,8 +40,8 @@ execCommand Logout = execLogout
 execCommand Shutdown = execShutdown
 execCommand Whois = execWhois
 execCommand (Say msg) = execSay msg
---execCommand (Move dir) = execMovePlayer dir
---execCommand Look = showRoom
+execCommand (Move dir) = execMovePlayer dir
+execCommand Look = execShowRoom
 execCommand _ = return ()
 
 
@@ -97,3 +107,28 @@ execSay msg = do
         Right user ->
             broadcast (T.concat ["<", userUsername user, "> ", msg])
 
+execMovePlayer :: Direction -> ReaderT ThreadEnv IO ()
+execMovePlayer dir = do
+    state <- readState
+    eCurrentRoom <- getUserLocation
+    eUid <- getUserId 
+    let eUidNewRid  = (,) <$> eUid <*> destRoomId eCurrentRoom dir
+    case eUidNewRid of
+        Left NoSuchRoom -> sendMsg "There is no path in that direction"
+        Left err -> liftIO $ print err
+        Right (uid, newRid) -> do
+            let playerMap' = findAndSwapPlayer uid newRid (globalPlayerMap state)
+            setState $ replacePlayerMap state playerMap'
+
+execShowRoom :: ReaderT ThreadEnv IO ()
+execShowRoom = do
+    globalState' <- readState
+    eUid <- getUserId
+    eRoom <- getUserLocation
+    let res = do
+            uid <- eUid
+            room <- eRoom
+            showRoom' uid room globalState'
+    case res of
+        Left err -> liftIO $ print err
+        Right roomText -> sendMsg $ getRoomText roomText

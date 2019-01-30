@@ -1,4 +1,11 @@
-module Parser (commandParser, resultToEither, runParse, runWordParse, word)  where
+module Parser ( commandParser
+              , mainMenuParser
+              , resultToEither
+              , runParse
+              , runMainMenuParse
+              , runWordParse
+              , word
+              )  where
 
 import Control.Applicative
 import Data.ByteString (ByteString)
@@ -17,17 +24,22 @@ genParser :: (String, Maybe String, Command) -> Parser Command
 genParser (str, mStr, comm) = token $
     case mStr of
         Just mstr' -> do
-            void $ symbol str <|> symbol mstr'
+            void $ symbol str <|> (symbol mstr' <* eof)
             return comm
         Nothing -> do
             void $ symbol str
             return comm
 
-userCommands :: [(String, Maybe String, Command)]
-userCommands = 
+mainMenuCommands :: [(String, Maybe String, Command)]
+mainMenuCommands =
              [ ("exit"      , Just "quit" , Exit)
              , ("register"  , Just "r"    , Register)
              , ("login"     , Just "l"    , Login)
+             ]
+
+userCommands :: [(String, Maybe String, Command)]
+userCommands = 
+             [ ("exit"      , Just "quit" , Exit)
              , ("logout"    , Nothing     , Logout)
              , ("whois"     , Nothing     , Whois)
              , ("look"      , Just "l"    , Look)
@@ -59,6 +71,8 @@ commandParsers = parserGetUser
                : parserEcho
                : fmap genParser (userCommands ++ adminCommands)
 
+mainMenuParsers :: [Parser Command]
+mainMenuParsers = fmap genParser mainMenuCommands
 
 parserGetUser :: Parser Command
 parserGetUser = token $ do
@@ -91,13 +105,18 @@ parserEcho = token $ do
 commandParser :: Parser Command
 commandParser = choice commandParsers
 
+mainMenuParser :: Parser Command
+mainMenuParser = choice mainMenuParsers
 
 runParse :: ByteString -> Either Error Command
 runParse = resultToEither . parseByteString commandParser mempty
+
+runMainMenuParse :: ByteString -> Either Error Command
+runMainMenuParse = resultToEither . parseByteString mainMenuParser mempty
 
 runWordParse :: ByteString -> Either Error Text
 runWordParse bs = resultToEither $ parseByteString word mempty bs
     
 resultToEither :: Result a -> Either Error a
-resultToEither (Failure err') = Left . BadParse . T.pack $ show err'
+resultToEither (Failure err') = Left . BadParse $ show err'
 resultToEither (Success a) = Right a

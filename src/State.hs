@@ -1,4 +1,5 @@
 module State where
+-- This module will be pure functions related to manipulating the GlobalState
 
 import Control.Concurrent
 import Control.Concurrent.STM hiding (stateTVar)
@@ -17,7 +18,13 @@ import Types ( ActiveUsers
              , ThreadEnv(..)
              , User(..)
              , UserId
+             , RoomId
              )
+
+
+maybeToEither :: a -> Maybe b -> Either a b
+maybeToEither _ (Just b) = Right b
+maybeToEither a Nothing = Left a
 
 ----------------------------------
 ---- GlobalState Manipulation ----
@@ -34,10 +41,16 @@ setState state = do
     stateTVar <- asks threadEnvStateTVar
     liftIO . atomically $ writeTVar stateTVar state
 
+getUserId :: ReaderT ThreadEnv IO (Either Error UserId)
+getUserId = do
+    activeUsers <- globalActiveUsers <$> readState
+    thread <- liftIO myThreadId
+    return $ userUserId <$> getUserByThread thread activeUsers
 
---- Pure Getter/Setters ---
-
+---- Pure Getter/Setters ---
+    
 --- ActiveUsers ---
+
 removeUser :: UserId -> ActiveUsers -> ActiveUsers
 removeUser = M.delete 
 
@@ -64,5 +77,39 @@ whois state =
    in T.concat . intersperse (T.pack "\n") $ formatedUsers
 
 --- PlayerMap ---
+
+replacePlayerMap :: GlobalState -> PlayerMap -> GlobalState
+replacePlayerMap (GlobalState activeUsers' world _) =
+    GlobalState activeUsers' world 
+
+removePlayer :: UserId -> RoomId -> PlayerMap -> PlayerMap
+removePlayer uid = 
+    M.adjust (filter (/= uid)) 
+
+addPlayer :: UserId -> RoomId -> PlayerMap -> PlayerMap
+addPlayer uid = 
+    M.adjust ((:) uid)
+
+swapPlayer :: UserId -> RoomId -> RoomId -> PlayerMap -> PlayerMap
+swapPlayer uid rid rid' =
+    addPlayer uid rid' . removePlayer uid rid
+
+findPlayer :: UserId -> PlayerMap -> Either Error (RoomId, UserId)
+findPlayer uid playerMap' = 
+    let f :: (RoomId, [UserId]) -> [(RoomId, UserId)]
+        f (i, xs) = (,) i <$> xs
+        players :: [(RoomId, UserId)]
+        players = concatMap f (M.toList playerMap')
+        g :: (RoomId, UserId) -> Bool
+        g (_, uid') = uid == uid'
+        player :: Maybe (RoomId, UserId)
+        player = find g players
+    in maybeToEither UserNotInPlayerMap player
+
+findAndSwapPlayer :: UserId -> RoomId -> PlayerMap -> PlayerMap
+findAndSwapPlayer uid rid playerMap' =
+    case findPlayer uid playerMap' of
+        Right (rid', _) -> swapPlayer uid rid' rid playerMap'
+        _ -> addPlayer uid rid playerMap'
 
 

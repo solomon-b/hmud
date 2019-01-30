@@ -53,9 +53,10 @@ data Error = NoSuchUser
            | AlreadyLoggedIn
            | UserNotFound
            | InvalidPassword
-           | UserHasNoLocation
+           | PasswordsDontMatch
+           | UserNotInPlayerMap
            | InvalidCommand
-           | BadParse Text
+           | BadParse String
            deriving Show
 
 
@@ -64,7 +65,19 @@ data Error = NoSuchUser
 -------------------
 
 data Direction = 
-    N | S | E | W | NW | NE | SW | SE | U | D deriving (Eq, Show, Ord)
+    N | S | E | W | NW | NE | SW | SE | U | D deriving (Eq, Ord)
+
+instance Show Direction where
+    show U = "Up"
+    show D = "Down"
+    show N = "North"
+    show S = "South"
+    show E = "East"
+    show W = "West"
+    show NW = "Northwest"
+    show NE = "Northeast"
+    show SW = "Southwest"
+    show SE = "Southeast"
 
 type Name = Text
 type Description = Text
@@ -84,7 +97,8 @@ instance Show Room where
         show name ++ "\n" ++
         show desc ++ "\n" ++
         "Exits: " ++ show (M.keys dir)
-            
+
+newtype RoomText = RoomText { getRoomText :: Text } deriving Show
 
 
 ----------------

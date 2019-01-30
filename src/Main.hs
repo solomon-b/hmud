@@ -10,18 +10,16 @@ import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Class
 import Data.List (find)
 import Data.ByteString (ByteString)
---import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.SQLite.Simple (Connection, open)
-import qualified Database.SQLite.Simple as SQLite
 import Network.Socket
-import System.Exit (exitSuccess)
 import Text.Trifecta (parseByteString)
 
 import Commands
 import Dispatch
+import Room
 import SqliteLib
 import State
 import TelnetLib (prompt)
@@ -31,24 +29,15 @@ import Types ( Command(..)
              , GlobalState(..)
              , ThreadEnv(..)
              , User(..)
-             , Direction(..)
-             , Room(..)
-             , PlayerMap
-             , RoomId
              , UserId
              )
 import Parser
 import World
 
 
-------------------------
----- Misc Functions ----
-------------------------
-
-maybeToEither :: a -> Maybe b -> Either a b
-maybeToEither _ (Just b) = Right b
-maybeToEither a Nothing = Left a
-
+---------------------------
+---- Account Functions ----
+---------------------------
 
 -- I wish this worked:
 --checkLogin' :: Connection -> Either Text Text -> Either Text Text -> IO (Either Text User)
@@ -68,29 +57,32 @@ checkLogin :: Connection -> Either Error Text -> Either Error Text -> IO (Either
 checkLogin _ (Left err') _ = print err' >> return (Left NoSuchUser)
 checkLogin _ _ (Left err') = print err' >> return (Left InvalidPassword)
 checkLogin conn (Right acc) (Right pass) = do
+
     eUser <- selectUser conn acc 
     return $ eUser >>= checkPassword pass 
 
 -- TODO: Add minimum password strength req
-validatePassword :: ByteString -> ByteString -> ReaderT ThreadEnv IO (Maybe Text)
+validatePassword :: ByteString -> ByteString -> Either Error Text
 validatePassword pass1BS pass2BS = do
     let parsedPass1 = resultToEither $ parseByteString word mempty pass1BS
     let parsedPass2 = resultToEither $ parseByteString word mempty pass2BS
     case (parsedPass1, parsedPass2) of
-        (Right pass1, Right pass2) | pass1 == pass2 -> return $ Just pass1
-        _ -> return Nothing
+        (Right pass1, Right pass2) | pass1 == pass2 -> Right pass1
+                                   | otherwise -> Left PasswordsDontMatch
+        (Right _, Left err2) -> Left . BadParse $ show err2
+        (Left err1, _) -> Left . BadParse $ show err1
     
-validateUsername :: ByteString -> ReaderT ThreadEnv IO (Maybe Text)
+validateUsername :: ByteString -> ReaderT ThreadEnv IO (Either Error Text)
 validateUsername usernameBS = do
     conn <- asks threadEnvConn
     let parsedUsername = resultToEither $ parseByteString word mempty usernameBS
     case parsedUsername of
-        Left _ -> return Nothing
+        Left err -> return . Left . BadParse $ show err
         Right username -> do
             eUser <- liftIO $ selectUser conn (T.strip username)
             case eUser of
-                Right _ -> return Nothing
-                Left _ -> return $ Just username
+                Right _ -> return $ Left NoSuchUser
+                Left _ -> return $ Right username
 
 userIsLoggedIn :: UserId -> ReaderT ThreadEnv IO ()
 userIsLoggedIn userId = do
@@ -103,140 +95,11 @@ userIsLoggedIn userId = do
             loginPrompt
         Nothing -> return ()
 
-getUserId :: ReaderT ThreadEnv IO (Either Error UserId)
-getUserId = do
-    activeUsers <- globalActiveUsers <$> readState
-    thread <- liftIO myThreadId
-    return $ userUserId <$> getUserByThread thread activeUsers
-
 
 --------------------------
 ---- Player Movement  ----
 --------------------------
 
-removeFromPlayerMap :: UserId -> RoomId -> PlayerMap -> PlayerMap
-removeFromPlayerMap uid = 
-    M.adjust (filter (/= uid)) 
-
-addToPlayerMap :: UserId -> RoomId -> PlayerMap -> PlayerMap
-addToPlayerMap uid = 
-    M.adjust ((:) uid)
-
-swapInPlayerMap :: UserId -> RoomId -> RoomId -> PlayerMap -> PlayerMap
-swapInPlayerMap uid rid rid' =
-    addToPlayerMap uid rid' . removeFromPlayerMap uid rid
-
-findInPlayerMap :: UserId -> PlayerMap -> Maybe (RoomId, UserId)
-findInPlayerMap uid playerMap' = 
-    let f (i, xs) = fmap ((,) i) xs
-        players = concatMap f (M.toList playerMap')
-    in find (\(_, uid') -> uid == uid') players
-
-adjustPlayerMap :: UserId -> RoomId -> PlayerMap -> PlayerMap
-adjustPlayerMap uid rid playerMap' =
-    case findInPlayerMap uid playerMap' of
-        Nothing -> addToPlayerMap uid rid playerMap'
-        Just (rid', _) -> swapInPlayerMap uid rid' rid playerMap'
-
-adjustPlayerLocation :: UserId -> RoomId -> ReaderT ThreadEnv IO ()
-adjustPlayerLocation uid rid = do
-    (GlobalState activeUsers w playerMap') <- readState
-    liftIO $ print $ "uid: " ++ show uid
-    liftIO $ print $ "active users: " ++ show activeUsers
-    case activeUsers M.!? uid of
-        Nothing -> liftIO $ putStrLn "User not found"
-        Just _ -> 
-            let playerMap'' = adjustPlayerMap uid rid playerMap'
-            in do
-                liftIO $ print playerMap''
-                setState (GlobalState activeUsers w playerMap'')
-
-getUserLocation :: ReaderT ThreadEnv IO (Either Error Room)
-getUserLocation = do
-    playerMap' <- globalPlayerMap <$> readState
-    uidTVar <- asks threadEnvUserId 
-    mUid <- liftIO $ readTVarIO uidTVar
-    case mUid of
-        Nothing -> liftIO . pure $ Left NotLoggedIn
-        Just uid ->
-            case findInPlayerMap uid playerMap' of
-                Nothing -> liftIO . pure $ Left UserHasNoLocation
-                Just (rid, _) -> do 
-                    liftIO . putStrLn $ "user is in room: " ++ show rid
-                    liftIO . pure . Right $ world M.! rid
-
-movePlayer :: Direction -> ReaderT ThreadEnv IO ()
-movePlayer dir = do
-    eRoom <- getUserLocation
-    case eRoom of
-        Left err -> liftIO $ print err
-        Right room -> do
-            eUid <- getUserId 
-            case eUid of
-                Left err -> liftIO $ print err
-                Right uid ->
-                    case roomAdjacent room M.!? dir of
-                        Nothing -> do
-                            liftIO $ putStrLn "No such room"
-                            sendMsg "There is no path in that direction"
-                        Just newRid -> do
-                            adjustPlayerLocation uid newRid
-                            showRoom
-
-spawnPlayer :: ReaderT ThreadEnv IO ()
-spawnPlayer = do
-    liftIO $ putStrLn "Spawning Player.."
-    uidTVar <- asks threadEnvUserId 
-    mUid <- liftIO $ readTVarIO uidTVar
-    case mUid of
-        Nothing -> liftIO $ putStrLn "user is not logged in"
-        Just uid -> adjustPlayerLocation uid 1 >> liftIO (putStrLn "..Player Spawned")
-    
-getUsersInRoom :: RoomId -> ReaderT ThreadEnv IO (Either Error [User])
-getUsersInRoom rid = do
-    (GlobalState activeUsers' _ playerMap') <- readState
-    eUid <- getUserId
-    let usersInRoom = do
-        uids <- maybeToEither NoSuchRoom $ playerMap' M.!? rid
-        uid <- eUid
-        let users = fmap (\uid' -> fst $ activeUsers' M.! uid') uids
-            filteredUsers = filter (\(User userId _ _) -> userId /= uid) users
-        return filteredUsers
-    return usersInRoom
-        
-showUsersInRoom' :: Room -> [User] -> ReaderT ThreadEnv IO ()
-showUsersInRoom' room users = do
-    sendMsg $ roomName room
-    sendMsg $ roomDescription room
-    sendMsg . T.pack $ "You see: " ++ show users
-    sendMsg . T.pack $ "Exits: " ++ show (M.keys $ roomAdjacent room)
-
-showUsersInRoom :: RoomId -> ReaderT ThreadEnv IO [User]
-showUsersInRoom rid = do
-    (GlobalState activeUsers' _ playerMap') <- readState
-    let eUids = maybeToEither NoSuchRoom $ playerMap' M.!? rid
-    case eUids of
-        Left _ -> return []
-        Right uids -> do
-            eUid <- getUserId
-            case eUid of
-                Left err -> liftIO $ print err >> return []
-                Right uid -> 
-                    let users = fmap (\uid' -> fst $ activeUsers' M.! uid') uids
-                        filteredUsers = filter (\(User userId _ _) -> userId /= uid) users
-                    in return filteredUsers
-
-showRoom :: ReaderT ThreadEnv IO ()
-showRoom = do
-    eRoom <- getUserLocation
-    case eRoom of
-        Left err -> liftIO $ print err
-        Right room -> do
-            eUsers <- getUsersInRoom $ roomRoomId room
-            case eUsers of
-                Left err -> liftIO $ print err
-                Right users -> showUsersInRoom' room users
-     
 
 -----------------
 ---- Prompts ----
@@ -247,12 +110,12 @@ mainMenuPrompt = do
     sock <- asks threadEnvSock
     mapM_ sendMsg ["Welcome to hMud", "Options: register, login, exit"]
     
-    eCommand <- liftIO $ runParse <$> prompt sock "> "
+    eCommand <- liftIO $ runMainMenuParse <$> prompt sock "> "
     case eCommand of
         Left _ -> sendMsg "Invalid Command" >> mainMenuPrompt 
         Right Exit -> return ()
         Right Login -> loginPrompt
-        Right Register -> return ()
+        Right Register -> return () -- TODO: Integrate Registration Func
         _  -> return ()
 
 -- TODO: Refactor and simplify:
@@ -280,6 +143,21 @@ loginPrompt = do
             spawnPlayer
             userLoop
 
+usernameRegPrompt :: ReaderT ThreadEnv IO (Either Error Text)
+usernameRegPrompt = do
+    sock <- asks threadEnvSock
+    usernameBS <- liftIO $ prompt sock "username: "
+    validateUsername usernameBS
+
+passwordRegPrompt :: ReaderT ThreadEnv IO (Either Error Text)
+passwordRegPrompt = do
+    sock <- asks threadEnvSock
+    suppressEcho
+    passwordBS <- liftIO $ prompt sock "password: "
+    passwordBS' <- liftIO $ prompt sock "repeat password: "
+    unsuppressEcho
+    return $ validatePassword passwordBS passwordBS'
+
 -- TODO: Refactor and simplify:
 registerPrompt :: ReaderT ThreadEnv IO ()
 registerPrompt = do
@@ -290,46 +168,23 @@ registerPrompt = do
     usernameM <- validateUsername usernameBS
     
     case usernameM of
-        Nothing -> registerPrompt
-        Just username -> do
-            suppressEcho
-            passwordBS <- liftIO $ prompt sock "password: "
-            passwordBS' <- liftIO $ prompt sock "repeat password: "
-            unsuppressEcho
-
-            passwordM <- validatePassword passwordBS passwordBS'
+        Left err -> liftIO (print err) >> registerPrompt
+        Right username -> do
+            passwordM <- passwordRegPrompt
             case passwordM of
                 -- TODO: Only require the user to re-enter password
-                Nothing -> registerPrompt
-                Just pass -> void . liftIO $ addUserDb conn (User 0 username pass) 
+                Left err -> liftIO (print err) >> registerPrompt
+                Right pass -> void . liftIO $ addUserDb conn (User 0 username pass) 
 
 -- TODO: Refactor and simplify:
-gamePrompt :: Maybe (User, ThreadId) -> ReaderT ThreadEnv IO ()
-gamePrompt Nothing = loginPrompt
-gamePrompt (Just (user, _)) = do
-    stateTVar <- asks threadEnvStateTVar
-    conn <- asks threadEnvConn
+gamePrompt :: ReaderT ThreadEnv IO ()
+gamePrompt = do
     sock <- asks threadEnvSock
-    state <- liftIO $ readTVarIO stateTVar
-
     cmd <- liftIO $ prompt sock "> "
     let cmdParse = runParse cmd
     liftIO $ print cmdParse
     case cmdParse of
-        Right GetUsers -> liftIO (getUsersDb conn) >>= sendMsg
-        Right (GetUser user') -> liftIO (getUserDb conn user') >>= sendMsg
-        Right (AddUser user') -> liftIO (addUserDb conn user') >>= sendMsg
-        Right (Echo msg) -> sendMsg msg
-        Right Exit -> execExit
-        Right Logout -> execLogout
-        Right Shutdown -> do
-            sendMsg "Shutting Down! Goodbye!" 
-            liftIO (SQLite.close conn >> close sock >> exitSuccess)
-        Right Whois -> sendMsg (whois state)
-        Right (Say msg) -> broadcast (T.concat ["<", userUsername user, "> ", msg])
-        Right (Move dir) -> movePlayer dir
-        Right Look -> showRoom
-        Right _ -> return ()
+        Right cmd' -> execCommand cmd'
         Left err' -> sendMsg "Command not recognized" >> liftIO (print err')
 
 
@@ -342,12 +197,13 @@ userLoop = do
     state <- readState
     thread <- liftIO myThreadId
     readTChanLoop
-    let user = find (\(_, tid) -> tid == thread) (globalActiveUsers state)
+    let user :: Maybe (User, ThreadId)
+        user = find (\(_, tid) -> tid == thread) (globalActiveUsers state)
 
     case user of
-        Just _ -> gamePrompt user >> userLoop
+        Just _ -> gamePrompt >> userLoop
         Nothing -> mainMenuPrompt
-    
+
 mainLoop :: ReaderT Env IO ()
 mainLoop = forever $ do
     stateTVar <- asks envStateTVar
@@ -356,9 +212,8 @@ mainLoop = forever $ do
     wChannel<- asks envWChannel
     rChannel <- liftIO . atomically $ dupTChan wChannel
     userIdTvar <- liftIO . atomically $ newTVar Nothing
-
-
     (sock', _) <- lift $ accept sock
+
     drainTChanLoop rChannel
 
     void . liftIO $ do
