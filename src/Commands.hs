@@ -8,6 +8,7 @@ import Control.Concurrent
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader
 import qualified Database.SQLite.Simple as SQLite
+import Data.List (intersperse)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Network.Socket
@@ -46,7 +47,9 @@ execGetUsers :: ReaderT ThreadEnv IO ()
 execGetUsers = do
     conn <- asks threadEnvConn
     users <- liftIO $ getUsersDb conn
-    sendMsg users
+    let usernames = userUsername <$> users 
+        newlineSeperated = T.concat $ intersperse "\n" usernames ++ pure (T.pack "\r\n")
+    sendMsg newlineSeperated
 
 execGetUser :: Text -> ReaderT ThreadEnv IO ()
 execGetUser username = do

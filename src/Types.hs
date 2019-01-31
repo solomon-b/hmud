@@ -21,6 +21,7 @@ data Env =
         , envSock      :: Socket
         , envStateTVar :: TVar GlobalState
         , envWChannel  :: TChan Msg
+        , envUsers     :: [User]
         } 
 
 data ThreadEnv =
@@ -30,6 +31,7 @@ data ThreadEnv =
               , threadEnvWChannel  :: TChan Msg
               , threadEnvRChannel  :: TChan Msg
               , threadEnvUserId    :: TVar (Maybe UserId)
+              , threadEnvUsers     :: [User]        
               }
 
 type Msg = Text

@@ -112,10 +112,5 @@ getUserDb conn username = do
         Left err' -> print err' >> return "Problem finding user"
         Right user' -> return $ formatUser user'
 
-getUsersDb :: Connection -> IO Text
-getUsersDb conn = do
-    rows <- query_ conn selectUsersQuery
-    let usernames = userUsername <$> rows
-        newlineSeperated =
-            T.concat $ intersperse "\n" usernames ++ pure (T.pack "\r\n")
-    return newlineSeperated
+getUsersDb :: Connection -> IO [User]
+getUsersDb conn = query_ conn selectUsersQuery

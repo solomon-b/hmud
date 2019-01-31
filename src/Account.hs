@@ -5,9 +5,10 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader
 import Data.ByteString (ByteString)
 import qualified Data.Map.Strict as M
+import Data.List (find)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Database.SQLite.Simple (Connection)
+--import Database.SQLite.Simple (Connection)
 import Text.Trifecta (parseByteString)
 
 import Parser
@@ -32,7 +33,10 @@ import Types ( ActiveUsers
 --    user <- eUser
 --    return $ checkPassword pass' user
 
-
+-- DUPLICATE from state.hs, should be moved somewhere more general
+maybeToEither :: a -> Maybe b -> Either a b
+maybeToEither _ (Just b) = Right b
+maybeToEither a Nothing = Left a
 
 checkPassword :: Text -> User -> Either Error User
 checkPassword pass acc
@@ -40,12 +44,12 @@ checkPassword pass acc
     | otherwise = Right acc
 
 -- TODO: PURIFY
-checkLogin :: Connection -> Either Error Text -> Either Error Text -> IO (Either Error User)
+checkLogin :: [User] -> Either Error Text -> Either Error Text -> IO (Either Error User)
 checkLogin _ (Left err') _ = print err' >> return (Left NoSuchUser)
 checkLogin _ _ (Left err') = print err' >> return (Left InvalidPassword)
-checkLogin conn (Right acc) (Right pass) = do
-    eUser <- selectUser conn acc 
-    return $ eUser >>= checkPassword pass 
+checkLogin users (Right acc) (Right pass) = do
+    let mUser = maybeToEither NoSuchUser $ find (\user -> userUsername user == acc) users
+    return $ mUser >>= checkPassword pass 
 
 -- TODO: Add minimum password strength req
 validatePassword :: ByteString -> ByteString -> Either Error Text

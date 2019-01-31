@@ -16,6 +16,7 @@ import Network.Socket
 import Dispatch
 import State
 import Prompts
+import SqliteLib (getUsersDb)
 import Types ( Env(..)
              , GlobalState(..)
              , ThreadEnv(..)
@@ -45,12 +46,13 @@ mainLoop = forever $ do
     rChannel <- liftIO . atomically $ dupTChan wChannel
     userIdTvar <- liftIO . atomically $ newTVar Nothing
     (sock', _) <- lift $ accept sock
+    users <- asks envUsers
 
     drainTChanLoop rChannel
 
     void . liftIO $ do
         putStrLn "Got connection, handling query"
-        let threadEnv = ThreadEnv conn sock' stateTVar wChannel rChannel userIdTvar
+        let threadEnv = ThreadEnv conn sock' stateTVar wChannel rChannel userIdTvar users
         forkIO $ runReaderT userLoop threadEnv
 
 createSocket :: Integer -> IO Socket
@@ -70,5 +72,6 @@ main = withSocketsDo $ do
     gameSock <- createSocket 78
     state <- atomically $ newTVar (GlobalState M.empty world playerMap)
     wChannel <- newTChanIO
-    let env = Env conn gameSock state wChannel
+    users <- liftIO $ getUsersDb conn
+    let env = Env conn gameSock state wChannel users
     runReaderT mainLoop env 

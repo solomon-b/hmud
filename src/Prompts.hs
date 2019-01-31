@@ -45,7 +45,7 @@ mainMenuPrompt = do
 -- TODO: Refactor and simplify:
 loginPrompt :: ReaderT ThreadEnv IO ()
 loginPrompt = do
-    (ThreadEnv conn sock _ _ _ uidTVar) <- ask
+    (ThreadEnv conn sock _ _ _ uidTVar users) <- ask
     (GlobalState activeUsers _ playerMap') <- readState
     thread <- liftIO myThreadId
 
@@ -54,7 +54,7 @@ loginPrompt = do
     parsedPassword <- liftIO $ runWordParse <$> prompt sock "Password: "
     unsuppressEcho
 
-    loginResult <- liftIO $ checkLogin conn parsedUser parsedPassword
+    loginResult <- liftIO $ checkLogin users parsedUser parsedPassword
     case loginResult of
         Left err' -> liftIO (print err') >> sendMsg (T.pack $ show err') >> loginPrompt
         Right user ->
