@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 module Account where
 
 --import Control.Exception (bracket)
@@ -11,12 +10,10 @@ import qualified Data.Text as T
 import Database.SQLite.Simple (Connection)
 import Text.Trifecta (parseByteString)
 
-import Dispatch
 import Parser
 import SqliteLib
-import State
-import Types ( Error(..)
-             , GlobalState(..)
+import Types ( ActiveUsers
+             , Error(..)
              , ThreadEnv(..)
              , User(..)
              , UserId
@@ -42,11 +39,11 @@ checkPassword pass acc
     | pass /= userPassword acc = Left InvalidPassword
     | otherwise = Right acc
 
+-- TODO: PURIFY
 checkLogin :: Connection -> Either Error Text -> Either Error Text -> IO (Either Error User)
 checkLogin _ (Left err') _ = print err' >> return (Left NoSuchUser)
 checkLogin _ _ (Left err') = print err' >> return (Left InvalidPassword)
 checkLogin conn (Right acc) (Right pass) = do
-
     eUser <- selectUser conn acc 
     return $ eUser >>= checkPassword pass 
 
@@ -61,6 +58,7 @@ validatePassword pass1BS pass2BS = do
         (Right _, Left err2) -> Left . BadParse $ show err2
         (Left err1, _) -> Left . BadParse $ show err1
     
+-- TODO: PURIFY
 validateUsername :: ByteString -> ReaderT ThreadEnv IO (Either Error Text)
 validateUsername usernameBS = do
     conn <- asks threadEnvConn
@@ -73,13 +71,8 @@ validateUsername usernameBS = do
                 Right _ -> return $ Left NoSuchUser
                 Left _ -> return $ Right username
 
-userIsLoggedIn :: UserId -> ReaderT ThreadEnv IO Bool
-userIsLoggedIn userId = do
-    curState <- readState
-    let stateMap = globalActiveUsers curState
-        mUser = M.lookup userId stateMap
-    case mUser of
-        Just _ -> do
-            sendMsg "You are already logged in!"
-            return False
-        Nothing -> return True
+userIsLoggedIn :: ActiveUsers -> UserId -> Bool
+userIsLoggedIn activeUsers userId =
+    case M.lookup userId activeUsers of
+        Just _ -> True
+        Nothing -> False

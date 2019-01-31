@@ -57,18 +57,16 @@ loginPrompt = do
     loginResult <- liftIO $ checkLogin conn parsedUser parsedPassword
     case loginResult of
         Left err' -> liftIO (print err') >> sendMsg (T.pack $ show err') >> loginPrompt
-        Right user -> do
-            loginState <- userIsLoggedIn (userUserId user) 
-            if loginState
-            then do 
+        Right user ->
+            if userIsLoggedIn activeUsers (userUserId user) 
+            then loginPrompt
+            else do 
                 let activeUsersMap = M.insert (userUserId user) (user, thread) activeUsers
                 liftIO . atomically $ writeTVar uidTVar (Just $ userUserId user)
                 setState $ GlobalState activeUsersMap world playerMap'
                 liftIO $ print $ userUsername user `T.append` " Logged In"
                 sendMsg "\r\nLogin Succesful"
                 spawnPlayer
-            else loginPrompt
-
 
 usernameRegPrompt :: ReaderT ThreadEnv IO (Either Error Text)
 usernameRegPrompt = do
