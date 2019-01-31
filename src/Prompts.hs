@@ -74,8 +74,9 @@ loginPrompt = do
 usernameRegPrompt :: ReaderT ThreadEnv IO (Either Error Text)
 usernameRegPrompt = do
     sock <- asks threadEnvSock
+    users <- asks threadEnvUsers
     usernameBS <- liftIO $ prompt sock "username: "
-    validateUsername usernameBS
+    return $ validateUsername users usernameBS
 
 passwordRegPrompt :: ReaderT ThreadEnv IO (Either Error Text)
 passwordRegPrompt = do
@@ -90,11 +91,12 @@ registerPrompt :: ReaderT ThreadEnv IO ()
 registerPrompt = do
     conn <- asks threadEnvConn
     sock <- asks threadEnvSock
+    users <- asks threadEnvUsers
     
     usernameBS <- liftIO $ prompt sock "username: "
-    usernameM <- validateUsername usernameBS
+    let usernameE = validateUsername users usernameBS
     
-    case usernameM of
+    case usernameE of
         Left err -> liftIO (print err) >> registerPrompt
         Right username -> do
             passwordM <- passwordRegPrompt

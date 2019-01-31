@@ -1,27 +1,22 @@
 module Account where
 
 --import Control.Exception (bracket)
-import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Reader
 import Data.ByteString (ByteString)
 import qualified Data.Map.Strict as M
 import Data.List (find)
 import Data.Text (Text)
 import qualified Data.Text as T
---import Database.SQLite.Simple (Connection)
 import Text.Trifecta (parseByteString)
 
 import Parser
-import SqliteLib
 import Types ( ActiveUsers
              , Error(..)
-             , ThreadEnv(..)
              , User(..)
              , UserId
              )
 
 
--- This module should be PURE functions related to player login, logout, and registration
+-- This module is PURE functions related to player login, logout, and registration
 
 
 -- I wish this worked:
@@ -39,14 +34,12 @@ maybeToEither _ (Just b) = Right b
 maybeToEither a Nothing = Left a
 
 checkPassword :: Text -> User -> Either Error User
-checkPassword pass acc
-    | pass /= userPassword acc = Left InvalidPassword
-    | otherwise = Right acc
+checkPassword pass user
+    | pass /= userPassword user = Left InvalidPassword
+    | otherwise = Right user
 
--- TODO: PURIFY
 checkLogin :: [User] -> Text -> Either Error User
-checkLogin users acc = 
-    maybeToEither NoSuchUser $ find (\user -> userUsername user == acc) users
+checkLogin = findUserByName
 
 -- TODO: Add minimum password strength req
 validatePassword :: ByteString -> ByteString -> Either Error Text
@@ -59,18 +52,21 @@ validatePassword pass1BS pass2BS = do
         (Right _, Left err2) -> Left . BadParse $ show err2
         (Left err1, _) -> Left . BadParse $ show err1
     
--- TODO: PURIFY
-validateUsername :: ByteString -> ReaderT ThreadEnv IO (Either Error Text)
-validateUsername usernameBS = do
-    conn <- asks threadEnvConn
+
+findUserByName :: [User] -> Text -> Either Error User
+findUserByName users acc =
+    maybeToEither NoSuchUser $ find (\user -> userUsername user == acc) users
+
+validateUsername :: [User] -> ByteString -> Either Error Text
+validateUsername users usernameBS = do
     let parsedUsername = resultToEither $ parseByteString word mempty usernameBS
     case parsedUsername of
-        Left err -> return . Left . BadParse $ show err
+        Left err -> Left . BadParse $ show err
         Right username -> do
-            eUser <- liftIO $ selectUser conn (T.strip username)
+            let eUser = findUserByName users (T.strip username)
             case eUser of
-                Right _ -> return $ Left NoSuchUser
-                Left _ -> return $ Right username
+                Right _ -> Left NoSuchUser
+                Left _ -> Right username
 
 userIsLoggedIn :: ActiveUsers -> UserId -> Bool
 userIsLoggedIn activeUsers userId =
