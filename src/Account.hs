@@ -44,12 +44,9 @@ checkPassword pass acc
     | otherwise = Right acc
 
 -- TODO: PURIFY
-checkLogin :: [User] -> Either Error Text -> Either Error Text -> IO (Either Error User)
-checkLogin _ (Left err') _ = print err' >> return (Left NoSuchUser)
-checkLogin _ _ (Left err') = print err' >> return (Left InvalidPassword)
-checkLogin users (Right acc) (Right pass) = do
-    let mUser = maybeToEither NoSuchUser $ find (\user -> userUsername user == acc) users
-    return $ mUser >>= checkPassword pass 
+checkLogin :: [User] -> Text -> Either Error User
+checkLogin users acc = 
+    maybeToEither NoSuchUser $ find (\user -> userUsername user == acc) users
 
 -- TODO: Add minimum password strength req
 validatePassword :: ByteString -> ByteString -> Either Error Text
