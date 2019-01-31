@@ -54,10 +54,10 @@ loginPrompt = do
     parsedPassword <- liftIO $ runWordParse <$> prompt sock "Password: "
     unsuppressEcho
     let loginResult = do
-        username <- parsedUser
-        password <- parsedPassword
-        user <- checkLogin users username
-        checkPassword password user
+            username <- parsedUser
+            password <- parsedPassword
+            user <- checkLogin users username
+            checkPassword password user
     case loginResult of
         Left err' -> liftIO (print err') >> sendMsg (T.pack $ show err') >> loginPrompt
         Right user ->

@@ -59,14 +59,9 @@ findUserByName users acc =
 
 validateUsername :: [User] -> ByteString -> Either Error Text
 validateUsername users usernameBS = do
-    let parsedUsername = resultToEither $ parseByteString word mempty usernameBS
-    case parsedUsername of
-        Left err -> Left . BadParse $ show err
-        Right username -> do
-            let eUser = findUserByName users (T.strip username)
-            case eUser of
-                Right _ -> Left NoSuchUser
-                Left _ -> Right username
+    username <- resultToEither $ parseByteString word mempty usernameBS
+    user <- findUserByName users (T.strip username)
+    return $ userUsername user
 
 userIsLoggedIn :: ActiveUsers -> UserId -> Bool
 userIsLoggedIn activeUsers userId =
