@@ -14,7 +14,7 @@ import Dispatch
 import State
 import Types ( AppError(..)
              , Direction
-             , GlobalState(..)
+             , GameState(..)
              , Room(..)
              , RoomId
              , RoomText(..)
@@ -47,17 +47,17 @@ getUserLocation = do
 spawnPlayer :: ReaderT ThreadEnv IO ()
 spawnPlayer = do
     liftIO $ putStrLn "Spawning Player.."
-    (GlobalState activeUsers' w playerMap') <- readState
+    (GameState activeUsers' w playerMap') <- readState
     eUid <- getUserId 
     case eUid of
         Left err -> liftIO $ print err
         Right uid -> do
             let playerMap'' = addPlayer uid 1 playerMap'
-            setState (GlobalState activeUsers' w playerMap'')
+            setState (GameState activeUsers' w playerMap'')
             liftIO $ putStrLn "..Player spawned"
 
-getUsersInRoom :: UserId -> RoomId -> GlobalState -> Either AppError [User]
-getUsersInRoom uid rid (GlobalState activeUsers' _ playerMap') = do
+getUsersInRoom :: UserId -> RoomId -> GameState -> Either AppError [User]
+getUsersInRoom uid rid (GameState activeUsers' _ playerMap') = do
     uids <- maybeToEither NoSuchRoom $ playerMap' M.!? rid
     let mapFunc :: UserId -> User
         mapFunc uid' = fst $ activeUsers' M.! uid'
@@ -66,7 +66,7 @@ getUsersInRoom uid rid (GlobalState activeUsers' _ playerMap') = do
         users = (filter filterFunc . fmap mapFunc) uids
     return users
 
-showRoom' :: UserId -> Room -> GlobalState -> Either AppError RoomText
+showRoom' :: UserId -> Room -> GameState -> Either AppError RoomText
 showRoom' uid room state =
     packRoomText room <$> getUsersInRoom uid (roomRoomId room) state
 

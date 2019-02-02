@@ -18,15 +18,17 @@ import Network.Socket
 import Dispatch
 import Prompts
 import SqliteLib (getUsersDb)
-import Types ( Env(..)
-             , GlobalState(..)
-             , MonadMessaging(..)
-             , MonadState(..)
-             , MonadTCP(..)
-             , MonadThread(..)
-             , ThreadEnv(..)
-             , User(..)
-             )
+import Types 
+    ( Env(..)
+    , GameState(..)
+    , MonadMessaging(..)
+    , MonadGameState(..)
+    , MonadTCP(..)
+    , MonadPrompt(..)
+    , MonadThread(..)
+    , ThreadEnv(..)
+    , User(..)
+    )
 import World
 
 
@@ -41,55 +43,40 @@ createSocket port = do
     listen sock 1
     return sock
 
-forkUnliftIO :: MonadUnliftIO m => m () -> m ThreadId
-forkUnliftIO r = withRunInIO $ \run -> forkIO (run r)
-
-drainTChanLoop' :: (R.MonadIO m, MonadUnliftIO m) => TChan a -> m ()
-drainTChanLoop' rChannel = 
-    void . forkUnliftIO . forever . liftIO . atomically $ readTChan rChannel
-
-readTChanLoop' :: ( R.MonadReader ThreadEnv m
-                  , MonadUnliftIO m
-                  , MonadMessaging m
-                  ) => m ()
-readTChanLoop' = void . forkUnliftIO . forever $ do
-    rChannel <- R.asks threadEnvRChannel
-    msg <- readChannel rChannel
-    sendMsg' msg
-
-userLoop :: ( R.MonadReader ThreadEnv m
-             , MonadState m
-             , MonadThread m
-             , MonadUnliftIO m
-             , MonadMessaging m
-             ) => m ()
+userLoop :: 
+    ( R.MonadReader ThreadEnv m
+    , MonadGameState m
+    , MonadThread m
+    , MonadUnliftIO m
+    , MonadMessaging m
+    , MonadPrompt m
+    ) => m ()
 userLoop = forever $ do
-    env <- R.ask
     state  <- readState'
     thread <- getThread
-    readTChanLoop'
+    readTChanLoop
     let user :: Maybe (User, ThreadId)
         user = find (\(_, tid) -> tid == thread) (globalActiveUsers state)
 
     case user of
-        Just _ -> liftIO $ runReaderT gamePrompt env
-        Nothing -> liftIO $ runReaderT mainMenuPrompt env
+        Just _  -> gamePrompt
+        Nothing -> mainMenuPrompt
 
-
-mainLoop :: ( R.MonadReader Env m
-            , R.MonadIO m
-            , MonadState m
-            , MonadUnliftIO m
-            , MonadTCP m
-            , MonadMessaging m
-            ) => m ()
+mainLoop :: 
+    ( R.MonadReader Env m
+    , R.MonadIO m
+    , MonadGameState m
+    , MonadUnliftIO m
+    , MonadTCP m
+    , MonadMessaging m
+    ) => m ()
 mainLoop = forever $ do
     (Env conn sock stateTVar wChannel users) <- R.ask
     (sock', _) <- acceptSocket sock
     rChannel   <- duplicateChannel wChannel
     userIdTvar <- liftIO . atomically $ newTVar Nothing
 
-    drainTChanLoop' rChannel
+    drainTChanLoop rChannel
     
     void . liftIO $ do
         putStrLn "Got connection, handling query"
@@ -100,7 +87,7 @@ main :: IO ()
 main = withSocketsDo $ do
     conn <- open "hmud.db"
     gameSock <- createSocket 78
-    state <- atomically $ newTVar (GlobalState M.empty world playerMap)
+    state <- atomically $ newTVar (GameState M.empty world playerMap)
     wChannel <- newTChanIO
     users <- liftIO $ getUsersDb conn
     let env = Env conn gameSock state wChannel users

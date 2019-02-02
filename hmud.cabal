@@ -67,4 +67,5 @@ library
                      , mtl
                      , trifecta
                      , transformers
+                     , unliftio-core
   default-language: Haskell2010

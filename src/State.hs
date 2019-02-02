@@ -1,5 +1,5 @@
 module State where
--- This module will be pure functions related to manipulating the GlobalState
+-- This module will be pure functions related to manipulating the GameState
 
 import Control.Concurrent
 import Control.Concurrent.STM hiding (stateTVar)
@@ -13,7 +13,7 @@ import qualified Data.Text as T
 import SqliteLib (formatUser) 
 import Types ( ActiveUsers
              , AppError(..)
-             , GlobalState(..)
+             , GameState(..)
              , PlayerMap
              , ThreadEnv(..)
              , User(..)
@@ -27,16 +27,16 @@ maybeToEither _ (Just b) = Right b
 maybeToEither a Nothing = Left a
 
 ----------------------------------
----- GlobalState Manipulation ----
+---- GameState Manipulation ----
 ----------------------------------
 
 --- Impure Getter/Setters ---
-readState :: ReaderT ThreadEnv IO GlobalState
+readState :: ReaderT ThreadEnv IO GameState
 readState = do
     stateTVar <- asks threadEnvStateTVar
     liftIO $ readTVarIO stateTVar
 
-setState :: GlobalState -> ReaderT ThreadEnv IO ()
+setState :: GameState -> ReaderT ThreadEnv IO ()
 setState state = do
     stateTVar <- asks threadEnvStateTVar
     liftIO . atomically $ writeTVar stateTVar state
@@ -70,7 +70,7 @@ getUserByThread tid activeUsers =
         Just user -> Right user
 
 
-whois :: GlobalState -> Text
+whois :: GameState -> Text
 whois state =
    let users = M.elems $ globalActiveUsers state
        formatedUsers = formatUser . fst <$> users
@@ -78,9 +78,9 @@ whois state =
 
 --- PlayerMap ---
 
-replacePlayerMap :: GlobalState -> PlayerMap -> GlobalState
-replacePlayerMap (GlobalState activeUsers' world _) =
-    GlobalState activeUsers' world 
+replacePlayerMap :: GameState -> PlayerMap -> GameState
+replacePlayerMap (GameState activeUsers' world _) =
+    GameState activeUsers' world 
 
 removePlayer :: UserId -> RoomId -> PlayerMap -> PlayerMap
 removePlayer uid = 

@@ -1,11 +1,12 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Prompts where
 -- This module will hold all command prompts
 
-import Control.Concurrent
 import Control.Concurrent.STM
 --import Control.Exception (bracket)
 import Control.Monad (void)
+import qualified Control.Monad.Reader as R
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader
 import qualified Data.Map.Strict as M
@@ -16,42 +17,52 @@ import Account
 import Commands
 import Dispatch
 import Parser
-import Room
 import State
 import SqliteLib
-import TelnetLib (prompt)
 import Types ( Command(..)
              , AppError(..)
-             , GlobalState(..)
+             , GameState(..)
+             , MonadGameState(..)
+             , MonadThread(..)
+             , MonadPrompt(..)
              , ThreadEnv(..)
              , User(..)
              )
 import World
 
-
-mainMenuPrompt :: ReaderT ThreadEnv IO ()
+mainMenuPrompt ::
+    ( R.MonadReader ThreadEnv m
+    , R.MonadIO m
+    , MonadThread m
+    , MonadGameState m
+    , MonadPrompt m
+    ) => m ()
 mainMenuPrompt = do
-    sock <- asks threadEnvSock
-    mapM_ sendMsg ["Welcome to hMud", "Options: register, login, exit"]
+    mapM_ sendMsg' ["Welcome to hMud", "Options: register, login, exit"]
     
-    eCommand <- liftIO $ runMainMenuParse <$> prompt sock "> "
+    eCommand <- runMainMenuParse <$> prompt "> "
     case eCommand of
-        Left _ -> sendMsg "Invalid Command" >> mainMenuPrompt 
+        Left _ -> sendMsg' "Invalid Command" >> mainMenuPrompt
         Right Exit -> return ()
         Right Login -> loginPrompt
         Right Register -> return () -- TODO: Integrate Registration Func
         _  -> return ()
 
--- TODO: Refactor and simplify:
-loginPrompt :: ReaderT ThreadEnv IO ()
+loginPrompt :: 
+    ( R.MonadReader ThreadEnv m
+    , R.MonadIO m
+    , MonadThread m
+    , MonadGameState m
+    , MonadPrompt m
+    ) => m ()
 loginPrompt = do
-    (ThreadEnv _ sock _ _ _ uidTVar users) <- ask
-    (GlobalState activeUsers _ playerMap') <- readState
-    thread <- liftIO myThreadId
+    (ThreadEnv _ _ _ _ _ uidTVar users) <- R.ask
+    (GameState activeUsers _ playerMap') <- readState'
+    thread <- getThread
 
-    parsedUser <- liftIO $ runWordParse <$> prompt sock "Login: "
+    parsedUser     <- runWordParse <$> prompt "Login: "
     suppressEcho
-    parsedPassword <- liftIO $ runWordParse <$> prompt sock "Password: "
+    parsedPassword <- runWordParse <$> prompt "Password: "
     unsuppressEcho
     let loginResult = do
             username <- parsedUser
@@ -59,41 +70,50 @@ loginPrompt = do
             user <- checkLogin users username
             checkPassword password user
     case loginResult of
-        Left err' -> liftIO (print err') >> sendMsg (T.pack $ show err') >> loginPrompt
+        Left err'  -> liftIO (print err') >> sendMsg' (T.pack $ show err') >> loginPrompt
         Right user ->
             if userIsLoggedIn activeUsers (userUserId user) 
             then loginPrompt
             else do 
-                let activeUsersMap = M.insert (userUserId user) (user, thread) activeUsers
-                liftIO . atomically $ writeTVar uidTVar (Just $ userUserId user)
-                setState $ GlobalState activeUsersMap world playerMap'
+                let uid = userUserId user
+                    activeUsersMap = M.insert (userUserId user) (user, thread) activeUsers
+                    playerMap'' = addPlayer uid 1 playerMap'
+                liftIO . atomically $ writeTVar uidTVar (Just uid)
+                setState' $ GameState activeUsersMap world playerMap''
                 liftIO $ print $ userUsername user `T.append` " Logged In"
-                sendMsg "\r\nLogin Succesful"
-                spawnPlayer
+                sendMsg' "\r\nLogin Succesful"
 
-usernameRegPrompt :: ReaderT ThreadEnv IO (Either AppError Text)
+usernameRegPrompt ::
+    ( R.MonadReader ThreadEnv m
+    , R.MonadIO m
+    , MonadPrompt m
+    ) => m (Either AppError Text)
 usernameRegPrompt = do
-    sock <- asks threadEnvSock
-    users <- asks threadEnvUsers
-    usernameBS <- liftIO $ prompt sock "username: "
+    users <- R.asks threadEnvUsers -- TODO: Figure out why this isnt in a TVar
+    usernameBS <- prompt "username: "
     return $ validateUsername users usernameBS
 
-passwordRegPrompt :: ReaderT ThreadEnv IO (Either AppError Text)
+passwordRegPrompt ::
+    ( R.MonadReader ThreadEnv m
+    , MonadPrompt m
+    ) => m (Either AppError Text)
 passwordRegPrompt = do
-    sock <- asks threadEnvSock
     suppressEcho
-    passwordBS <- liftIO $ prompt sock "password: "
-    passwordBS' <- liftIO $ prompt sock "repeat password: "
+    passwordBS  <- prompt "password: "
+    passwordBS' <- prompt "repeat password: "
     unsuppressEcho
     return $ validatePassword passwordBS passwordBS'
 
-registerPrompt :: ReaderT ThreadEnv IO ()
+registerPrompt ::
+    ( R.MonadReader ThreadEnv m
+    , R.MonadIO m
+    , MonadPrompt m
+    ) => m ()
 registerPrompt = do
-    conn <- asks threadEnvConn
-    sock <- asks threadEnvSock
-    users <- asks threadEnvUsers
+    conn  <- R.asks threadEnvConn
+    users <- R.asks threadEnvUsers
     
-    usernameBS <- liftIO $ prompt sock "username: "
+    usernameBS <- prompt "username: "
     let usernameE = validateUsername users usernameBS
     
     case usernameE of
@@ -102,26 +122,19 @@ registerPrompt = do
             passwordM <- passwordRegPrompt
             case passwordM of
                 -- TODO: Only require the user to re-enter password
-                Left err -> liftIO (print err) >> registerPrompt
+                Left err   -> liftIO (print err) >> registerPrompt
                 Right pass -> void . liftIO $ addUserDb conn (User 0 username pass) 
 
-gamePrompt :: ReaderT ThreadEnv IO ()
+gamePrompt :: 
+    ( R.MonadReader ThreadEnv m
+    , R.MonadIO m
+    , MonadPrompt m
+    ) => m ()
 gamePrompt = do
-    sock <- asks threadEnvSock
-    cmd <- liftIO $ prompt sock "> "
+    env <- R.ask
+    cmd  <- prompt "> "
     let cmdParse = runParse cmd
     liftIO $ print cmdParse
     case cmdParse of
-        Right cmd' -> execCommand cmd'
-        Left err' -> sendMsg "Command not recognized" >> liftIO (print err')
-
-
-gamePrompt' :: ReaderT ThreadEnv IO ()
-gamePrompt' = do
-    sock <- asks threadEnvSock
-    cmd <- liftIO $ prompt sock "> "
-    let cmdParse = runParse cmd
-    liftIO $ print cmdParse
-    case cmdParse of
-        Right cmd' -> execCommand cmd'
-        Left err' -> sendMsg "Command not recognized" >> liftIO (print err')
+        Right cmd' -> liftIO $ runReaderT (execCommand cmd') env
+        Left err'  -> sendMsg' "Command not recognized" >> liftIO (print err')

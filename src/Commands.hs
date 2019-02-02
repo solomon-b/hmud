@@ -21,7 +21,7 @@ import State
 import Types ( Command(..)
              , Direction
              , AppError(..)
-             , GlobalState(..)
+             , GameState(..)
              , RoomText(..)
              , ThreadEnv(..)
              , User(..)
@@ -77,14 +77,14 @@ execExit = do
 
 execLogout :: ReaderT ThreadEnv IO ()
 execLogout = do
-    (GlobalState activePlayers _ playerMap') <- readState
+    (GameState activePlayers _ playerMap') <- readState
     threadId <- liftIO myThreadId
     case getUserByThread threadId activePlayers of
         Left _ -> return ()
         Right user -> do
             let userId = userUserId user
                 activePlayers' = removeUser userId activePlayers
-            setState $ GlobalState activePlayers' world playerMap'
+            setState $ GameState activePlayers' world playerMap'
 
 execShutdown :: ReaderT ThreadEnv IO ()
 execShutdown = do

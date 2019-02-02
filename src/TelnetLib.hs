@@ -1,11 +1,8 @@
-{-# LANGUAGE OverloadedStrings #-}
 module TelnetLib where
 
---import Control.Concurrent
 import Control.Monad.State
 import Data.Text()
 import Data.Word
-import Network.Socket hiding (recv)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Network.Socket.ByteString (recv, sendAll)
@@ -99,13 +96,3 @@ processStream bs =
     let stream = BS.unpack bs
         startingState = MessageState Nothing Normal
     in execState (mapM_ handleStream stream) startingState
-
-prompt :: Socket -> ByteString -> IO ByteString
-prompt sock prefix = do
-    sendAll sock (BS.append prefix (BS.pack [255, 249]))
-    rawMsg <- recv sock 1024
-    let (MessageState msg _) = processStream rawMsg
-    case msg of
-        Nothing -> prompt sock ""
-        Just msg' -> 
-            return msg'
