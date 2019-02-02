@@ -14,7 +14,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Trifecta
 
-import Types (User(..), Command(..), Direction(..), Error(..))
+import Types (User(..), Command(..), Direction(..), AppError(..))
 
 
 word :: Parser Text
@@ -108,15 +108,15 @@ commandParser = choice commandParsers
 mainMenuParser :: Parser Command
 mainMenuParser = choice mainMenuParsers
 
-runParse :: ByteString -> Either Error Command
+runParse :: ByteString -> Either AppError Command
 runParse = resultToEither . parseByteString commandParser mempty
 
-runMainMenuParse :: ByteString -> Either Error Command
+runMainMenuParse :: ByteString -> Either AppError Command
 runMainMenuParse = resultToEither . parseByteString mainMenuParser mempty
 
-runWordParse :: ByteString -> Either Error Text
+runWordParse :: ByteString -> Either AppError Text
 runWordParse bs = resultToEither $ parseByteString word mempty bs
     
-resultToEither :: Result a -> Either Error a
+resultToEither :: Result a -> Either AppError a
 resultToEither (Failure err') = Left . BadParse $ show err'
 resultToEither (Success a) = Right a

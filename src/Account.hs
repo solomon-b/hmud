@@ -1,6 +1,5 @@
 module Account where
 
---import Control.Exception (bracket)
 import Data.ByteString (ByteString)
 import qualified Data.Map.Strict as M
 import Data.List (find)
@@ -10,39 +9,27 @@ import Text.Trifecta (parseByteString)
 
 import Parser
 import Types ( ActiveUsers
-             , Error(..)
+             , AppError(..)
              , User(..)
              , UserId
              )
-
-
 -- This module is PURE functions related to player login, logout, and registration
-
-
--- I wish this worked:
---checkLogin' :: Connection -> Either Text Text -> Either Text Text -> IO (Either Text User)
---checkLogin' conn acc pass = do
---    acc' <- acc
---    pass' <- pass
---    eUser  <- selectUser conn acc'
---    user <- eUser
---    return $ checkPassword pass' user
 
 -- DUPLICATE from state.hs, should be moved somewhere more general
 maybeToEither :: a -> Maybe b -> Either a b
 maybeToEither _ (Just b) = Right b
 maybeToEither a Nothing = Left a
 
-checkPassword :: Text -> User -> Either Error User
+checkPassword :: Text -> User -> Either AppError User
 checkPassword pass user
     | pass /= userPassword user = Left InvalidPassword
     | otherwise = Right user
 
-checkLogin :: [User] -> Text -> Either Error User
+checkLogin :: [User] -> Text -> Either AppError User
 checkLogin = findUserByName
 
 -- TODO: Add minimum password strength req
-validatePassword :: ByteString -> ByteString -> Either Error Text
+validatePassword :: ByteString -> ByteString -> Either AppError Text
 validatePassword pass1BS pass2BS = do
     let parsedPass1 = resultToEither $ parseByteString word mempty pass1BS
     let parsedPass2 = resultToEither $ parseByteString word mempty pass2BS
@@ -52,12 +39,11 @@ validatePassword pass1BS pass2BS = do
         (Right _, Left err2) -> Left . BadParse $ show err2
         (Left err1, _) -> Left . BadParse $ show err1
     
-
-findUserByName :: [User] -> Text -> Either Error User
+findUserByName :: [User] -> Text -> Either AppError User
 findUserByName users acc =
     maybeToEither NoSuchUser $ find (\user -> userUsername user == acc) users
 
-validateUsername :: [User] -> ByteString -> Either Error Text
+validateUsername :: [User] -> ByteString -> Either AppError Text
 validateUsername users usernameBS = do
     username <- resultToEither $ parseByteString word mempty usernameBS
     user <- findUserByName users (T.strip username)

@@ -20,7 +20,7 @@ import SqliteLib
 import State
 import Types ( Command(..)
              , Direction
-             , Error(..)
+             , AppError(..)
              , GlobalState(..)
              , RoomText(..)
              , ThreadEnv(..)

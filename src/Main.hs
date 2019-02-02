@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
@@ -5,55 +6,29 @@ import Control.Concurrent
 import Control.Concurrent.STM hiding (stateTVar)
 --import Control.Exception (bracket)
 import Control.Monad (forever, void)
+import qualified Control.Monad.Reader as R
+import Control.Monad.IO.Unlift
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader
-import Control.Monad.Trans.Class
 import Data.List (find)
 import qualified Data.Map.Strict as M
 import Database.SQLite.Simple (open)
 import Network.Socket
 
 import Dispatch
-import State
 import Prompts
 import SqliteLib (getUsersDb)
 import Types ( Env(..)
              , GlobalState(..)
+             , MonadMessaging(..)
+             , MonadState(..)
+             , MonadTCP(..)
+             , MonadThread(..)
              , ThreadEnv(..)
              , User(..)
              )
 import World
 
-
-userLoop :: ReaderT ThreadEnv IO ()
-userLoop = forever $ do
-    state <- readState
-    thread <- liftIO myThreadId
-    readTChanLoop
-    let user :: Maybe (User, ThreadId)
-        user = find (\(_, tid) -> tid == thread) (globalActiveUsers state)
-
-    case user of
-        Just _ -> gamePrompt
-        Nothing -> mainMenuPrompt
-
-mainLoop :: ReaderT Env IO ()
-mainLoop = forever $ do
-    stateTVar <- asks envStateTVar
-    conn <- asks envConn
-    sock <- asks envSock
-    wChannel<- asks envWChannel
-    rChannel <- liftIO . atomically $ dupTChan wChannel
-    userIdTvar <- liftIO . atomically $ newTVar Nothing
-    (sock', _) <- lift $ accept sock
-    users <- asks envUsers
-
-    drainTChanLoop rChannel
-
-    void . liftIO $ do
-        putStrLn "Got connection, handling query"
-        let threadEnv = ThreadEnv conn sock' stateTVar wChannel rChannel userIdTvar users
-        forkIO $ runReaderT userLoop threadEnv
 
 createSocket :: Integer -> IO Socket
 createSocket port = do
@@ -65,6 +40,61 @@ createSocket port = do
     bind sock (addrAddress serveraddr)
     listen sock 1
     return sock
+
+forkUnliftIO :: MonadUnliftIO m => m () -> m ThreadId
+forkUnliftIO r = withRunInIO $ \run -> forkIO (run r)
+
+drainTChanLoop' :: (R.MonadIO m, MonadUnliftIO m) => TChan a -> m ()
+drainTChanLoop' rChannel = 
+    void . forkUnliftIO . forever . liftIO . atomically $ readTChan rChannel
+
+readTChanLoop' :: ( R.MonadReader ThreadEnv m
+                  , MonadUnliftIO m
+                  , MonadMessaging m
+                  ) => m ()
+readTChanLoop' = void . forkUnliftIO . forever $ do
+    rChannel <- R.asks threadEnvRChannel
+    msg <- readChannel rChannel
+    sendMsg' msg
+
+userLoop :: ( R.MonadReader ThreadEnv m
+             , MonadState m
+             , MonadThread m
+             , MonadUnliftIO m
+             , MonadMessaging m
+             ) => m ()
+userLoop = forever $ do
+    env <- R.ask
+    state  <- readState'
+    thread <- getThread
+    readTChanLoop'
+    let user :: Maybe (User, ThreadId)
+        user = find (\(_, tid) -> tid == thread) (globalActiveUsers state)
+
+    case user of
+        Just _ -> liftIO $ runReaderT gamePrompt env
+        Nothing -> liftIO $ runReaderT mainMenuPrompt env
+
+
+mainLoop :: ( R.MonadReader Env m
+            , R.MonadIO m
+            , MonadState m
+            , MonadUnliftIO m
+            , MonadTCP m
+            , MonadMessaging m
+            ) => m ()
+mainLoop = forever $ do
+    (Env conn sock stateTVar wChannel users) <- R.ask
+    (sock', _) <- acceptSocket sock
+    rChannel   <- duplicateChannel wChannel
+    userIdTvar <- liftIO . atomically $ newTVar Nothing
+
+    drainTChanLoop' rChannel
+    
+    void . liftIO $ do
+        putStrLn "Got connection, handling query"
+        let threadEnv = ThreadEnv conn sock' stateTVar wChannel rChannel userIdTvar users
+        forkIO $ runReaderT userLoop threadEnv
 
 main :: IO ()
 main = withSocketsDo $ do

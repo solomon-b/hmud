@@ -13,15 +13,14 @@ module SqliteLib
     ) where
 
 import Control.Exception
-import Data.List (intersperse)
 import Data.Text (Text, concat, pack)
 import qualified Data.Text as T
-import Database.SQLite.Simple hiding (Error)
+import Database.SQLite.Simple
 import qualified Database.SQLite.Simple as SQLite
 import Database.SQLite.Simple.Types
 import Text.RawString.QQ
 
-import Types (Error(..), User(..), UserRow, DuplicateData(..))
+import Types (AppError(..), User(..), UserRow, DuplicateData(..))
 
 
 -----------------
@@ -65,7 +64,7 @@ createDatabase = do
     where defUser :: UserRow
           defUser = (Null, "solomon", "pass")
 
-selectUser :: Connection -> Text -> IO (Either Error User)
+selectUser :: Connection -> Text -> IO (Either AppError User)
 selectUser conn user = do
     results <- query conn selectUserQuery (Only user)
     case results of

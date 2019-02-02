@@ -12,7 +12,7 @@ import qualified Data.Text as T
 
 import SqliteLib (formatUser) 
 import Types ( ActiveUsers
-             , Error(..)
+             , AppError(..)
              , GlobalState(..)
              , PlayerMap
              , ThreadEnv(..)
@@ -41,7 +41,7 @@ setState state = do
     stateTVar <- asks threadEnvStateTVar
     liftIO . atomically $ writeTVar stateTVar state
 
-getUserId :: ReaderT ThreadEnv IO (Either Error UserId)
+getUserId :: ReaderT ThreadEnv IO (Either AppError UserId)
 getUserId = do
     activeUsers <- globalActiveUsers <$> readState
     thread <- liftIO myThreadId
@@ -59,7 +59,7 @@ addUser user tid activeUsers =
     let uid = userUserId user
     in M.insert uid (user, tid) activeUsers
 
-getUserByThread :: ThreadId -> ActiveUsers -> Either Error User
+getUserByThread :: ThreadId -> ActiveUsers -> Either AppError User
 getUserByThread tid activeUsers =
     let users :: [(UserId, (User, ThreadId))]
         users = M.toList activeUsers
@@ -94,7 +94,7 @@ swapPlayer :: UserId -> RoomId -> RoomId -> PlayerMap -> PlayerMap
 swapPlayer uid rid rid' =
     addPlayer uid rid' . removePlayer uid rid
 
-findPlayer :: UserId -> PlayerMap -> Either Error (RoomId, UserId)
+findPlayer :: UserId -> PlayerMap -> Either AppError (RoomId, UserId)
 findPlayer uid playerMap' = 
     let f :: (RoomId, [UserId]) -> [(RoomId, UserId)]
         f (i, xs) = (,) i <$> xs

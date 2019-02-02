@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Dispatch where
 
@@ -8,6 +9,7 @@ Message Dispatching to the telnet client.
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad (forever, void)
+import qualified Control.Monad.Reader as R
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader
 import Data.ByteString as BS (pack, append)
@@ -35,6 +37,11 @@ unsuppressEcho = do
     sock <- asks threadEnvSock
     liftIO . print $ BS.pack [255,252,1]
     liftIO . sendAll sock $ BS.pack [255,252,1]
+
+sendMsg' :: (R.MonadReader ThreadEnv m, R.MonadIO m) => Text -> m ()
+sendMsg' msg = do
+    sock <- R.asks threadEnvSock
+    liftIO . sendAll sock . encodeUtf8 $ T.append msg "\r\n"
 
 sendMsg :: Text -> ReaderT ThreadEnv IO ()
 sendMsg msg = do

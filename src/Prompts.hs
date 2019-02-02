@@ -21,7 +21,7 @@ import State
 import SqliteLib
 import TelnetLib (prompt)
 import Types ( Command(..)
-             , Error(..)
+             , AppError(..)
              , GlobalState(..)
              , ThreadEnv(..)
              , User(..)
@@ -71,14 +71,14 @@ loginPrompt = do
                 sendMsg "\r\nLogin Succesful"
                 spawnPlayer
 
-usernameRegPrompt :: ReaderT ThreadEnv IO (Either Error Text)
+usernameRegPrompt :: ReaderT ThreadEnv IO (Either AppError Text)
 usernameRegPrompt = do
     sock <- asks threadEnvSock
     users <- asks threadEnvUsers
     usernameBS <- liftIO $ prompt sock "username: "
     return $ validateUsername users usernameBS
 
-passwordRegPrompt :: ReaderT ThreadEnv IO (Either Error Text)
+passwordRegPrompt :: ReaderT ThreadEnv IO (Either AppError Text)
 passwordRegPrompt = do
     sock <- asks threadEnvSock
     suppressEcho
@@ -105,9 +105,19 @@ registerPrompt = do
                 Left err -> liftIO (print err) >> registerPrompt
                 Right pass -> void . liftIO $ addUserDb conn (User 0 username pass) 
 
--- TODO: Refactor and simplify:
 gamePrompt :: ReaderT ThreadEnv IO ()
 gamePrompt = do
+    sock <- asks threadEnvSock
+    cmd <- liftIO $ prompt sock "> "
+    let cmdParse = runParse cmd
+    liftIO $ print cmdParse
+    case cmdParse of
+        Right cmd' -> execCommand cmd'
+        Left err' -> sendMsg "Command not recognized" >> liftIO (print err')
+
+
+gamePrompt' :: ReaderT ThreadEnv IO ()
+gamePrompt' = do
     sock <- asks threadEnvSock
     cmd <- liftIO $ prompt sock "> "
     let cmdParse = runParse cmd
