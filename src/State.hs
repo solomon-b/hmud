@@ -1,25 +1,24 @@
+{-# LANGUAGE FlexibleContexts #-}
 module State where
 -- This module will be pure functions related to manipulating the GameState
 
-import Control.Concurrent
-import Control.Concurrent.STM hiding (stateTVar)
-import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Reader
 import qualified Data.Map.Strict as M
 import Data.List (intersperse, find)
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import SqliteLib (formatUser) 
-import Types ( ActiveUsers
-             , AppError(..)
-             , GameState(..)
-             , PlayerMap
-             , ThreadEnv(..)
-             , User(..)
-             , UserId
-             , RoomId
-             )
+import Errors
+import SqliteLib 
+    (formatUser 
+    , User(..)
+    , UserId
+    )
+import Types 
+    ( ActiveUsers
+    , GameState(..)
+    , PlayerMap
+    , RoomId
+    )
 
 
 maybeToEither :: a -> Maybe b -> Either a b
@@ -30,22 +29,16 @@ maybeToEither a Nothing = Left a
 ---- GameState Manipulation ----
 ----------------------------------
 
---- Impure Getter/Setters ---
-readState :: ReaderT ThreadEnv IO GameState
-readState = do
-    stateTVar <- asks threadEnvStateTVar
-    liftIO $ readTVarIO stateTVar
 
-setState :: GameState -> ReaderT ThreadEnv IO ()
-setState state = do
-    stateTVar <- asks threadEnvStateTVar
-    liftIO . atomically $ writeTVar stateTVar state
-
-getUserId :: ReaderT ThreadEnv IO (Either AppError UserId)
-getUserId = do
-    activeUsers <- globalActiveUsers <$> readState
-    thread <- liftIO myThreadId
-    return $ userUserId <$> getUserByThread thread activeUsers
+--getUserId ::
+--    ( MonadReader UserEnv m
+--    , MonadThread m
+--    , MonadGameState m
+--    ) => m (Either AppError UserId)
+--getUserId = do
+--    activeUsers <- globalActiveUsers <$> readState
+--    thread <- getThread
+--    return $ userUserId <$> getUserByThread thread activeUsers
 
 ---- Pure Getter/Setters ---
     
@@ -54,26 +47,26 @@ getUserId = do
 removeUser :: UserId -> ActiveUsers -> ActiveUsers
 removeUser = M.delete 
 
-addUser :: User -> ThreadId -> ActiveUsers -> ActiveUsers
-addUser user tid activeUsers = 
+addUser :: User -> ActiveUsers -> ActiveUsers
+addUser user activeUsers = 
     let uid = userUserId user
-    in M.insert uid (user, tid) activeUsers
+    in M.insert uid user activeUsers
 
-getUserByThread :: ThreadId -> ActiveUsers -> Either AppError User
-getUserByThread tid activeUsers =
-    let users :: [(UserId, (User, ThreadId))]
-        users = M.toList activeUsers
-        f :: (UserId, (User, ThreadId)) -> Bool
-        f (_, (_, tid')) = tid == tid'
-    in case fst . snd <$> find f users of
-        Nothing -> Left NotLoggedIn
-        Just user -> Right user
+--getUserByThread :: ThreadId -> ActiveUsers -> Either AppError User
+--getUserByThread tid activeUsers =
+--    let users :: [(UserId, User)]
+--        users = M.toList activeUsers
+--        f :: (UserId, User) -> Bool
+--        f (_, (_, tid')) = tid == tid'
+--    in case find f users of
+--        Nothing -> Left NotLoggedIn
+--        Just user -> Right user
 
 
 whois :: GameState -> Text
 whois state =
    let users = M.elems $ globalActiveUsers state
-       formatedUsers = formatUser . fst <$> users
+       formatedUsers = formatUser <$> users
    in T.concat . intersperse (T.pack "\n") $ formatedUsers
 
 --- PlayerMap ---
@@ -89,6 +82,11 @@ removePlayer uid =
 addPlayer :: UserId -> RoomId -> PlayerMap -> PlayerMap
 addPlayer uid = 
     M.adjust ((:) uid)
+
+lookupPlayer :: UserId -> ActiveUsers -> Either AppError User
+lookupPlayer uid activeUsers' = 
+    let user = M.lookup uid activeUsers'
+    in maybe (Left NoSuchUser) Right user
 
 swapPlayer :: UserId -> RoomId -> RoomId -> PlayerMap -> PlayerMap
 swapPlayer uid rid rid' =

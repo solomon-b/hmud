@@ -3,6 +3,7 @@ module World where
 
 import qualified Data.Map.Strict as M
 import Types 
+import Parser (Direction(..))
 
 frontHallDescription :: Description
 frontHallDescription =

@@ -8,11 +8,9 @@ import qualified Data.Text as T
 import Text.Trifecta (parseByteString)
 
 import Parser
-import Types ( ActiveUsers
-             , AppError(..)
-             , User(..)
-             , UserId
-             )
+import Errors
+import SqliteLib (User(..), UserId)
+import Types (ActiveUsers)
 -- This module is PURE functions related to player login, logout, and registration
 
 -- DUPLICATE from state.hs, should be moved somewhere more general

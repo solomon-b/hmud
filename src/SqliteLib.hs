@@ -1,27 +1,75 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 module SqliteLib 
-    ( createDatabase
+    ( Handle(..)
+    , Config(..)
+    , User(..)
+    , UserId
+    , withHandle
     , selectUser
-    , insertUser
     , formatUser
-    , constructUser
-    , selectUsersQuery
     , getUsersDb
     , getUserDb
     , addUserDb
     ) where
 
-import Control.Exception
+import Control.Exception (Exception, bracket, throwIO)
 import Data.Text (Text, concat, pack)
 import qualified Data.Text as T
+import Data.Typeable (Typeable)
 import Database.SQLite.Simple
 import qualified Database.SQLite.Simple as SQLite
 import Database.SQLite.Simple.Types
 import Text.RawString.QQ
 
-import Types (AppError(..), User(..), UserRow, DuplicateData(..))
+import Errors
 
+
+----------------
+---- Handle ----
+----------------
+
+newtype Handle = Handle { hConnection :: Connection }
+
+newtype Config = Config { cDatabase :: String }
+
+newHandle :: Config -> IO Handle
+newHandle (Config db) = Handle <$> open db
+
+closeHandle :: Handle -> IO ()
+closeHandle (Handle db) = close db
+
+withHandle :: Config -> (Handle -> IO a) -> IO a
+withHandle config = bracket (newHandle config) closeHandle
+ 
+
+---------------
+---- Types ----
+---------------
+
+type UserId = Integer
+
+data User =
+    User { userUserId   :: Integer
+         , userUsername :: Text
+         , userPassword :: Text
+         } deriving Eq
+
+type UserRow = (Null, Text, Text)
+
+data DuplicateData = DuplicateData 
+    deriving (Eq, Show, Typeable)
+
+instance Exception DuplicateData
+
+instance FromRow User where
+    fromRow = User <$> field <*> field <*> field
+
+instance ToRow User where
+    toRow (User id_ username' password') = toRow (id_, username', password')
+
+instance Show User where
+    show user = show (userUsername user)
 
 -----------------
 ---- Queries ----
@@ -64,22 +112,6 @@ createDatabase = do
     where defUser :: UserRow
           defUser = (Null, "solomon", "pass")
 
-selectUser :: Connection -> Text -> IO (Either AppError User)
-selectUser conn user = do
-    results <- query conn selectUserQuery (Only user)
-    case results of
-        [] -> return $ Left NoSuchUser
-        [user'] -> return $ Right user'
-        _ -> throwIO DuplicateData
-
-insertUser :: Connection -> [Text] -> IO (Either Text User)
-insertUser conn user =
-    case constructUser user of
-        Left err -> return $ Left err
-        Right user' -> do
-                execute conn insertUserQuery user'
-                return $ Right user'
-
 -- TODO: Thse pure functions should probably go somewhere else?
 formatUser :: User -> Text
 formatUser (User uid name _) =
@@ -93,23 +125,39 @@ constructUser xs =
     in f xs
 
 
------------------------------
----- Getters and Setters ----
------------------------------
+-----------------
+---- Actions ----
+-----------------
 
-addUserDb :: Connection -> User -> IO Text
-addUserDb conn (User _ username password) = do
-    eInserted <- insertUser conn [username, password]
+selectUser :: Handle -> Text -> IO (Either AppError User)
+selectUser (Handle conn) user = do
+    results <- query conn selectUserQuery (Only user)
+    case results of
+        [] -> return $ Left NoSuchUser
+        [user'] -> return $ Right user'
+        _ -> throwIO DuplicateData
+
+insertUser :: Handle -> [Text] -> IO (Either Text User)
+insertUser (Handle conn) user =
+    case constructUser user of
+        Left err -> return $ Left err
+        Right user' -> do
+                execute conn insertUserQuery user'
+                return $ Right user'
+
+addUserDb :: Handle -> User -> IO Text
+addUserDb handle (User _ username password) = do
+    eInserted <- insertUser handle [username, password]
     case eInserted of
         Left err' -> print err' >> return "Problem adding user"
         Right res -> return $ formatUser res
 
-getUserDb :: Connection -> Text -> IO Text
-getUserDb conn username = do
-    eUser <- selectUser conn (T.strip username)
+getUserDb :: Handle -> Text -> IO Text
+getUserDb handle username = do
+    eUser <- selectUser handle (T.strip username)
     case eUser of
         Left err' -> print err' >> return "Problem finding user"
         Right user' -> return $ formatUser user'
 
-getUsersDb :: Connection -> IO [User]
-getUsersDb conn = query_ conn selectUsersQuery
+getUsersDb :: Handle -> IO [User]
+getUsersDb (Handle conn) = query_ conn selectUsersQuery

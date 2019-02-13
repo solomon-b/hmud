@@ -5,7 +5,8 @@ import Data.Text()
 import Data.Word
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import Network.Socket.ByteString (recv, sendAll)
+
+import Errors
 
 
 data TelnetCommand =
@@ -73,26 +74,27 @@ handleStream word = do
                     -- TODO: Handle '\r\n' in mid stream and '\x08' for clients
                     -- that stream characters as typed.
                     Message w -> put $ MessageState (addWordToBuffer w buffer) Normal
-                    IAC -> put $ MessageState buffer Command
-                    _ -> put $ MessageState buffer mode
+                    IAC       -> put $ MessageState buffer Command
+                    _         -> put $ MessageState buffer mode
             Command -> 
                 -- TODO: Perform actual behavior for remaining TelnetCommands. 
                 case toTelnetCommand word of
                     EraseCharacter -> put $ MessageState (eraseCharFromBuffer buffer) Normal
-                    EraseLine -> put $ MessageState Nothing Normal
-                    SB -> put $ MessageState buffer SubNegotiation
-                    Will -> put $ MessageState buffer Command
-                    Wont -> put $ MessageState buffer Command
-                    Do -> put $ MessageState buffer Command
-                    Dont -> put $ MessageState buffer Command
-                    _ -> put $ MessageState buffer Normal
+                    EraseLine      -> put $ MessageState Nothing Normal
+                    SB             -> put $ MessageState buffer  SubNegotiation
+                    Will           -> put $ MessageState buffer  Command
+                    Wont           -> put $ MessageState buffer  Command
+                    Do             -> put $ MessageState buffer  Command
+                    Dont           -> put $ MessageState buffer  Command
+                    _              -> put $ MessageState buffer  Normal
             SubNegotiation ->
                 case toTelnetCommand word of
                     SE -> put $ MessageState buffer Normal
-                    _ -> put $ MessageState buffer SubNegotiation
+                    _  -> put $ MessageState buffer SubNegotiation
 
-processStream :: ByteString -> MessageState
+processStream :: ByteString -> Either AppError ByteString
 processStream bs = 
     let stream = BS.unpack bs
         startingState = MessageState Nothing Normal
-    in execState (mapM_ handleStream stream) startingState
+        (MessageState bs' _)  = execState (mapM_ handleStream stream) startingState
+    in maybe (Left $ BadParse "Empty Message") Right bs'

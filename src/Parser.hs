@@ -1,4 +1,6 @@
-module Parser ( commandParser
+module Parser ( Command(..)
+              , Direction(..)
+              , commandParser
               , mainMenuParser
               , resultToEither
               , runParse
@@ -14,8 +16,48 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Trifecta
 
-import Types (User(..), Command(..), Direction(..), AppError(..))
+import Errors
+import SqliteLib (User(..))
 
+---------------
+---- Types ----
+---------------
+
+data Command = 
+      GetUsers
+    | GetUser Text
+    | AddUser User
+    | Echo Text
+    | Exit
+    | Shutdown
+    | Register
+    | Look
+    | Login
+    | Logout
+    | Whois
+    | Say Text
+    | Move Direction
+    deriving (Eq, Show)
+
+data Direction = 
+    N | S | E | W | NW | NE | SW | SE | U | D deriving (Eq, Ord)
+
+instance Show Direction where
+    show U = "Up"
+    show D = "Down"
+    show N = "North"
+    show S = "South"
+    show E = "East"
+    show W = "West"
+    show NW = "Northwest"
+    show NE = "Northeast"
+    show SW = "Southwest"
+    show SE = "Southeast"
+
+
+----------------
+---- Parser ----
+----------------
 
 word :: Parser Text
 word = token $ T.pack <$> some letter

@@ -1,34 +1,41 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Commands where
--- This module will be impure functions for all user commands.
--- NOT CURRENTLY IN USE
 
-
-import Control.Concurrent
+import Control.Monad.Reader
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Reader
-import qualified Database.SQLite.Simple as SQLite
 import Data.List (intersperse)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Network.Socket
-import System.Exit (exitSuccess)
 
-import Dispatch
+import Errors
 import Room
+import Parser
 import SqliteLib
 import State
-import Types ( Command(..)
-             , Direction
-             , AppError(..)
-             , GameState(..)
-             , RoomText(..)
-             , ThreadEnv(..)
-             , User(..)
-             )
+import Types 
+    ( GameState(..)
+    , HasConnectionHandle(..)
+    , MonadGameState(..)
+    , MonadPlayer(..)
+    , MonadTCP(..)
+    , MonadThread(..)
+    , MonadTChan(..)
+    , RoomText(..)
+    , Response(..)
+    , UserEnv(..)
+    )
 import World
 
-execCommand :: Command ->  ReaderT ThreadEnv IO ()
+execCommand ::
+    ( MonadReader UserEnv m
+    , MonadIO m
+    , MonadTCP m
+    , MonadTChan m
+    , MonadPlayer m
+    , MonadGameState m
+    , MonadThread m
+    ) => Command -> m (Either AppError Response)
 execCommand GetUsers = execGetUsers
 execCommand (GetUser username) = execGetUser username
 execCommand (AddUser user) = execAddUser user
@@ -40,95 +47,128 @@ execCommand Whois = execWhois
 execCommand (Say msg) = execSay msg
 execCommand (Move dir) = execMovePlayer dir
 execCommand Look = execShowRoom
-execCommand _ = return ()
+execCommand _ = return $ Left InvalidCommand
 
 
-execGetUsers :: ReaderT ThreadEnv IO ()
+execGetUsers ::
+    ( MonadReader UserEnv m
+    , MonadIO m
+    ) => m (Either AppError Response)
 execGetUsers = do
-    conn <- asks threadEnvConn
+    conn <- asks getConnectionHandle
     users <- liftIO $ getUsersDb conn
     let usernames = userUsername <$> users 
         newlineSeperated = T.concat $ intersperse "\n" usernames ++ pure (T.pack "\r\n")
-    sendMsg newlineSeperated
+    return . Right $ RespAnnounce newlineSeperated
 
-execGetUser :: Text -> ReaderT ThreadEnv IO ()
+execGetUser ::
+    ( MonadReader UserEnv m
+    , MonadIO m
+    ) => Text -> m (Either AppError Response)
 execGetUser username = do
-    conn <- asks threadEnvConn
+    conn <- asks getConnectionHandle
     eUser <- liftIO $ selectUser conn (T.strip username)
     case eUser of
-        Left err' -> liftIO (print err') >> sendMsg "Problem finding user"
-        Right user' -> sendMsg $ formatUser user'
+        Left err' -> return $ Left err'
+        Right user' -> return . Right . RespAnnounce $ formatUser user'
 
-execAddUser :: User -> ReaderT ThreadEnv IO ()
+execAddUser ::
+    ( MonadReader UserEnv m
+    , MonadIO m
+    ) => User -> m (Either AppError Response)
 execAddUser user = do
-    conn <- asks threadEnvConn
+    conn <- asks getConnectionHandle
     result <- liftIO $ addUserDb conn user
-    sendMsg result
+    return . Right $ RespAnnounce result
 
-execEcho :: Text -> ReaderT ThreadEnv IO ()
-execEcho = sendMsg
+execEcho :: 
+    ( Monad m
+    ) => Text -> m (Either AppError Response)
+execEcho = return . Right . RespAnnounce
 
-execExit :: ReaderT ThreadEnv IO ()
+execExit ::
+    ( MonadReader UserEnv m
+    , MonadIO m
+    , MonadGameState m
+    , MonadThread m
+    , MonadPlayer m
+    ) => m (Either AppError Response)
 execExit = do
-    sock <- asks threadEnvSock
-    execLogout 
-    sendMsg "Goodbye!" 
-    liftIO (close sock)
+    void execLogout 
+    return . Right $ RespAnnounce "Goodbye!"
 
-execLogout :: ReaderT ThreadEnv IO ()
+execLogout ::
+    ( MonadReader UserEnv m
+    , MonadIO m
+    , MonadGameState m
+    , MonadThread m
+    , MonadPlayer m
+    ) => m (Either AppError Response)
 execLogout = do
     (GameState activePlayers _ playerMap') <- readState
-    threadId <- liftIO myThreadId
-    case getUserByThread threadId activePlayers of
-        Left _ -> return ()
+    eUser <- getUser
+    case eUser of
+        Left err -> return $ Left err
         Right user -> do
             let userId = userUserId user
                 activePlayers' = removeUser userId activePlayers
             setState $ GameState activePlayers' world playerMap'
+            return . Right $ RespAnnounce "Logged Out"
 
-execShutdown :: ReaderT ThreadEnv IO ()
-execShutdown = do
-    conn <- asks threadEnvConn
-    sock <- asks threadEnvSock
-    sendMsg "Shutting Down! Goodbye!" 
-    liftIO (SQLite.close conn >> close sock >> exitSuccess)
+execShutdown ::
+    (Monad m) => m (Either AppError Response)
+execShutdown = return . Right $ RespAnnounce "Shutting Down! Goodbye!" 
 
-execWhois :: ReaderT ThreadEnv IO ()
-execWhois = do
-    state <- readState 
-    sendMsg $ whois state
+execWhois ::
+    (MonadGameState m) => m (Either AppError Response)
+execWhois = Right . RespAnnounce . whois <$> readState
 
-execSay :: Text -> ReaderT ThreadEnv IO ()
+execSay :: (MonadPlayer m) => Text -> m (Either AppError Response)
 execSay msg = do
-    activeUsers <- globalActiveUsers <$> readState
-    threadId <- liftIO myThreadId
-    case getUserByThread threadId activeUsers of
-        Left _ -> return () -- TODO: How to report this error?
-        Right user ->
-            broadcast (T.concat ["<", userUsername user, "> ", msg])
+    eUser <- getUser
+    case eUser of
+        Left err -> return $ Left err
+        Right user -> return . Right $ RespSay (userUsername user) msg
 
-execMovePlayer :: Direction -> ReaderT ThreadEnv IO ()
+execMovePlayer ::
+    ( MonadReader UserEnv m
+    , MonadIO m
+    , MonadGameState m
+    , MonadThread m
+    , MonadPlayer m
+    ) => Direction -> m (Either AppError Response)
 execMovePlayer dir = do
     state <- readState
     eCurrentRoom <- getUserLocation
-    eUid <- getUserId 
-    let eUidNewRid  = (,) <$> eUid <*> destRoomId eCurrentRoom dir
-    case eUidNewRid of
-        Left NoSuchRoom -> sendMsg "There is no path in that direction"
-        Left err -> liftIO $ print err
-        Right (uid, newRid) -> do
-            let playerMap' = findAndSwapPlayer uid newRid (globalPlayerMap state)
-            setState $ replacePlayerMap state playerMap'
+    eUser <- getUser
+    
+    case eUser of
+        Left err -> return $ Left err
+        Right (User uid _ _) -> do
+            let eUidNewRid  = (,) <$> pure uid <*> destRoomId eCurrentRoom dir
+            case eUidNewRid of
+                Left NoSuchRoom -> return . Right $ RespAnnounce "There is no path in that direction"
+                Left err -> return $ Left err
+                Right (_, newRid) -> do
+                    let playerMap' = findAndSwapPlayer uid newRid (globalPlayerMap state)
+                    setState $ replacePlayerMap state playerMap'
+                    return . Right $ RespAnnounce "You have moved into a new room..."
 
-execShowRoom :: ReaderT ThreadEnv IO ()
+execShowRoom ::
+    ( MonadReader UserEnv m
+    , MonadIO m
+    , MonadGameState m
+    , MonadPlayer m
+    , MonadThread m
+    ) => m (Either AppError Response)
 execShowRoom = do
     globalState' <- readState
-    eUid <- getUserId
-    eRoom <- getUserLocation
+    eRoom        <- getUserLocation
+    eUser        <- getUser
     let res = do
-            uid <- eUid
+            (User uid _ _)  <- eUser
             room <- eRoom
             showRoom' uid room globalState'
     case res of
-        Left err -> liftIO $ print err
-        Right roomText -> sendMsg $ getRoomText roomText
+        Left  err      -> return $ Left err
+        Right roomText -> return . Right . RespAnnounce $ getRoomText roomText

@@ -1,94 +1,112 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
 import Control.Concurrent
+import Control.Concurrent.Async
 import Control.Concurrent.STM hiding (stateTVar)
---import Control.Exception (bracket)
-import Control.Monad (forever, void)
-import qualified Control.Monad.Reader as R
+import Control.Monad (forever)
+import Control.Monad.Reader
 import Control.Monad.IO.Unlift
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Reader
-import Data.List (find)
 import qualified Data.Map.Strict as M
-import Database.SQLite.Simple (open)
 import Network.Socket
 
 import Dispatch
 import Prompts
-import SqliteLib (getUsersDb)
+import qualified Socket
+import qualified SqliteLib as SQL
 import Types 
     ( Env(..)
     , GameState(..)
-    , MonadMessaging(..)
+    , MonadTChan(..)
     , MonadGameState(..)
     , MonadTCP(..)
+    , MonadPlayer(..)
     , MonadPrompt(..)
     , MonadThread(..)
-    , ThreadEnv(..)
-    , User(..)
+    , UserEnv(..)
+    , Response(..)
     )
 import World
 
+newtype AppM env a = App { unAppM :: ReaderT env IO a}
+    deriving ( Functor
+             , Applicative
+             , Monad
+             , MonadIO
+             , MonadUnliftIO
+             , MonadReader env
+             , MonadGameState
+             , MonadPlayer
+             , MonadPrompt
+             , MonadTChan
+             , MonadTCP
+             , MonadThread
+             )
 
-createSocket :: Integer -> IO Socket
-createSocket port = do
-    addrinfos <- getAddrInfo (Just (defaultHints {addrFlags = [AI_PASSIVE]}))
-                              Nothing (Just $ show port)
-    let serveraddr = head addrinfos
-    sock <- socket (addrFamily serveraddr) Stream defaultProtocol
-    setSocketOption sock ReuseAddr 1 
-    bind sock (addrAddress serveraddr)
-    listen sock 1
-    return sock
-
-userLoop :: 
-    ( R.MonadReader ThreadEnv m
+userLoop ::
+    ( MonadReader UserEnv m
     , MonadGameState m
     , MonadThread m
     , MonadUnliftIO m
-    , MonadMessaging m
+    , MonadTChan m
+    , MonadPlayer m
     , MonadPrompt m
+    , MonadTCP m
     ) => m ()
 userLoop = forever $ do
-    state  <- readState'
-    thread <- getThread
-    readTChanLoop
-    let user :: Maybe (User, ThreadId)
-        user = find (\(_, tid) -> tid == thread) (globalActiveUsers state)
+    eUser     <- getUser
+    pubTChan  <- asks userEnvPubTChan
+    respTChan <- asks userEnvRespTchan
+    case eUser of
+        Right _ -> do
+            response <- gamePrompt 
+            case response of
+                Right resp@(RespSay _ _) -> writeChannel pubTChan resp
+                Right resp  -> writeChannel respTChan resp
+                Left  e     -> liftIO $ print e
+        Left _ -> mainMenuPrompt
 
-    case user of
-        Just _  -> gamePrompt
-        Nothing -> mainMenuPrompt
-
-mainLoop :: 
-    ( R.MonadReader Env m
-    , R.MonadIO m
-    , MonadGameState m
-    , MonadUnliftIO m
-    , MonadTCP m
-    , MonadMessaging m
-    ) => m ()
+mainLoop :: AppM Env ()
 mainLoop = forever $ do
-    (Env conn sock stateTVar wChannel users) <- R.ask
-    (sock', _) <- acceptSocket sock
-    rChannel   <- duplicateChannel wChannel
-    userIdTvar <- liftIO . atomically $ newTVar Nothing
+    (Env stateTVar pubTChan conn sock) <- ask
+    sock'     <- acceptHandle' sock
+    cmdTChan  <- createTChan
+    respTChan <- createTChan
+    pubTChan' <- duplicateChannel pubTChan
+    uidTvar   <- liftIO . atomically $ newTVar Nothing
+    let userEnv = UserEnv conn sock' stateTVar pubTChan' cmdTChan respTChan uidTvar
+    liftIO . forkIO $ race_ (runAppM userEnv userLoop) 
+                            (dispatchLoop sock' respTChan pubTChan')
 
-    drainTChanLoop rChannel
-    
-    void . liftIO $ do
-        putStrLn "Got connection, handling query"
-        let threadEnv = ThreadEnv conn sock' stateTVar wChannel rChannel userIdTvar users
-        forkIO $ runReaderT userLoop threadEnv
+runAppM :: env -> AppM env a -> IO a
+runAppM env = flip runReaderT env . unAppM
+
+socketConfig :: Socket.Config
+socketConfig = 
+    Socket.Config 
+    { Socket.cPort          = 78
+    , Socket.cSocketOptions = [(ReuseAddr, 1)]
+    , Socket.cConnections   = 1
+    , Socket.cAddrInfo      = Just (defaultHints {addrFlags = [AI_PASSIVE]})
+    , Socket.cHostname      = Nothing
+    , Socket.cServiceName   = Just "78"
+    }
+
+dBConfig :: SQL.Config
+dBConfig = SQL.Config "hmud.db"
+
+launchApp :: SQL.Config -> Socket.Config -> (SQL.Handle -> Socket.Handle -> Env) -> IO ()
+launchApp sqlC sockC env =
+    SQL.withHandle sqlC (\db -> 
+        Socket.withHandle sockC (\sock ->
+            runAppM (env db sock) mainLoop))
 
 main :: IO ()
 main = withSocketsDo $ do
-    conn <- open "hmud.db"
-    gameSock <- createSocket 78
-    state <- atomically $ newTVar (GameState M.empty world playerMap)
+    state    <- atomically $ newTVar (GameState M.empty world playerMap)
     wChannel <- newTChanIO
-    users <- liftIO $ getUsersDb conn
-    let env = Env conn gameSock state wChannel users
-    runReaderT mainLoop env 
+    let env = Env state wChannel --users
+    launchApp dBConfig socketConfig env

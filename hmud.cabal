@@ -21,7 +21,9 @@ executable hmud
   other-modules:       Account
                      , Commands
                      , Dispatch
+                     , Errors
                      , Room
+                     , Socket
                      , SqliteLib
                      , State
                      , TelnetLib
@@ -30,6 +32,7 @@ executable hmud
                      , Parser
                      , World
   build-depends:       base >= 4.7 && < 5
+                     , async
                      , bytestring
                      , containers
                      , mtl
@@ -47,9 +50,11 @@ library
   exposed-modules:     Account
                      , Commands
                      , Dispatch
+                     , Errors
                      , Prompts
                      , SqliteLib
                      , State
+                     , Socket
                      , Room
                      , TelnetLib
                      , Types
@@ -57,6 +62,7 @@ library
                      , World
   hs-source-dirs:      src
   build-depends:       base >=4.7 && <5
+                     , async
                      , bytestring
                      , containers
                      , raw-strings-qq
