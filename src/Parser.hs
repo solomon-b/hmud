@@ -161,7 +161,7 @@ runParse' parser bs =
         Failure msg -> throwError . BadParse $ show msg
 
 runParse :: MonadError AppError m => ByteString -> m Command
-runParse = runParse' commandParser
+runParse = runParse' (try commandParser <|> try mainMenuParser)
 
 runMainMenuParse :: MonadError AppError m => ByteString -> m Command
 runMainMenuParse = runParse' mainMenuParser

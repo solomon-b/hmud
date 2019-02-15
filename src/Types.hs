@@ -123,7 +123,8 @@ instance (HasState env, MonadIO m) => MonadGameState (ReaderT env m) where
     readState     = asks getState >>= (liftIO . atomically . readTVar)
 
 class Monad m => MonadPlayer m where
-    getUser   :: m (Either AppError SQL.User)
+    getUser :: m (Either AppError SQL.User)
+    setUser :: SQL.UserId -> m ()
 instance ( HasUserId env
          , HasState env
          , MonadIO m
@@ -137,6 +138,9 @@ instance ( HasUserId env
             Just uid -> 
                 let user = M.lookup uid activePlayers
                 in return $ maybe (Left NoSuchUser) Right user
+    setUser uid = do
+        tvar <- asks getUserId
+        liftIO . atomically $ writeTVar tvar (Just uid)
 
 
 -------------------

@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Dispatch where
 
 {-
@@ -28,7 +29,17 @@ import Types
     , tshow
     )
 
-data ParseState = Normal | Multiline [()] deriving Show
+-- Always define the naturals:
+data Peano = Zero | Succ Peano deriving Show
+data ParseState = Normal | Multiline Peano deriving Show
+
+isZero :: Peano -> Bool
+isZero Zero = True
+isZero _    = False
+
+decr :: Peano -> Peano
+decr Zero = Zero
+decr (Succ p) = p
 
 suppressEcho ::
     ( MonadReader UserEnv m
@@ -53,29 +64,25 @@ cmdLoopInner ::
     , MonadState ParseState m
     ) => Socket.Handle -> TChan Command -> m ()
 cmdLoopInner handle cmdChan = forever $ do
-    s         <- get
-    rawMsg    <- readHandle' handle
-    cmds <- runExceptT $ f s rawMsg
-    liftIO $ print cmds
+    s      <- get
+    rawMsg <- readHandle' handle
+    cmds   <- runExceptT $ parseRawMsg s rawMsg
     case cmds of
-        Right (cmd, s') -> do
-            liftIO $ print cmd
-            writeChannel cmdChan cmd
-            put s'
+        Right (cmd, s') -> writeChannel cmdChan cmd >> put s'
         Left _ -> return () -- TODO: Log Error Here
-    where f state rawMsg = do
+    where parseRawMsg state rawMsg = do
             bs <- processStream rawMsg
             case state of
                 Normal -> do
                     cmd <- runParse bs
                     case cmd of
-                        Login -> return (Login, Multiline [()])
+                        Login -> return (Login, Multiline (Succ Zero))
                         _     -> return (cmd,   Normal)
                 Multiline cs -> do
                     str <- runWordParse rawMsg
-                    if null cs 
+                    if isZero cs
                     then return (Word str, Normal)
-                    else return (Word str, Multiline cs)
+                    else return (Word str, Multiline $ decr cs)
 
 dispatchLoop ::
     forall m.
