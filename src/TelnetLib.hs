@@ -1,7 +1,8 @@
-module TelnetLib where
+{-# LANGUAGE FlexibleContexts #-}
+module TelnetLib (processStream) where
 
+import Control.Monad.Except
 import Control.Monad.State
-import Data.Text()
 import Data.Word
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -52,7 +53,6 @@ toTelnetCommand w
     | w == 255  = IAC
     | otherwise = Message w
 
-
 addWordToBuffer :: Word8 -> Maybe ByteString -> Maybe ByteString
 addWordToBuffer w Nothing = Just $ BS.pack [w]
 addWordToBuffer w (Just buffer) = Just $ BS.append buffer (BS.pack [w])
@@ -92,9 +92,9 @@ handleStream word = do
                     SE -> put $ MessageState buffer Normal
                     _  -> put $ MessageState buffer SubNegotiation
 
-processStream :: ByteString -> Either AppError ByteString
+processStream :: MonadError AppError m => ByteString -> m ByteString
 processStream bs = 
     let stream = BS.unpack bs
         startingState = MessageState Nothing Normal
         (MessageState bs' _)  = execState (mapM_ handleStream stream) startingState
-    in maybe (Left $ BadParse "Empty Message") Right bs'
+    in maybe (throwError $ BadParse "Empty Message") return bs'

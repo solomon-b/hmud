@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Parser ( Command(..)
               , Direction(..)
               , commandParser
@@ -12,6 +13,7 @@ module Parser ( Command(..)
 import Control.Applicative
 import Data.ByteString (ByteString)
 import Control.Monad (void)
+import Control.Monad.Except
 import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Trifecta
@@ -37,6 +39,7 @@ data Command =
     | Whois
     | Say Text
     | Move Direction
+    | Word Text
     deriving (Eq, Show)
 
 data Direction = 
@@ -150,14 +153,21 @@ commandParser = choice commandParsers
 mainMenuParser :: Parser Command
 mainMenuParser = choice mainMenuParsers
 
-runParse :: ByteString -> Either AppError Command
-runParse = resultToEither . parseByteString commandParser mempty
+runParse' :: MonadError AppError m => Parser a -> ByteString -> m a
+runParse' parser bs = 
+    let parse = parseByteString parser mempty bs
+    in case parse of
+        Success cmd -> return cmd
+        Failure msg -> throwError . BadParse $ show msg
 
-runMainMenuParse :: ByteString -> Either AppError Command
-runMainMenuParse = resultToEither . parseByteString mainMenuParser mempty
+runParse :: MonadError AppError m => ByteString -> m Command
+runParse = runParse' commandParser
 
-runWordParse :: ByteString -> Either AppError Text
-runWordParse bs = resultToEither $ parseByteString word mempty bs
+runMainMenuParse :: MonadError AppError m => ByteString -> m Command
+runMainMenuParse = runParse' mainMenuParser
+
+runWordParse :: MonadError AppError m => ByteString -> m Text
+runWordParse = runParse' word
     
 resultToEither :: Result a -> Either AppError a
 resultToEither (Failure err') = Left . BadParse $ show err'

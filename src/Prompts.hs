@@ -1,11 +1,11 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Prompts where
--- This module will hold all command prompts
 
 import Control.Concurrent.STM
 import Control.Monad (void)
 import Control.Monad.Reader
+import Control.Monad.Except
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -51,9 +51,24 @@ mainMenuPrompt = do
     case eCommand of
         Left _         -> writeChannel respTChan (RespAnnounce "Invalid Command") >> mainMenuPrompt
         Right Exit     -> return () -- TODO: Integrate Exit
-        Right Login    -> loginPrompt
+        Right Login    -> loginPrompt'
         Right Register -> return () -- TODO: Integrate Registration Func
         _              -> return ()
+
+loginPrompt' ::
+    ( MonadReader UserEnv m
+    , MonadIO m
+    , MonadGameState m
+    , MonadPrompt m
+    , MonadTChan m
+    ) => m ()
+loginPrompt' = do
+    respTChan <- asks userEnvRespTchan
+    cmdTchan  <- asks userEnvCmdTChan
+    writeChannel respTChan $ RespPrompt "Login: "
+    resp <- readChannel cmdTchan
+    liftIO $ print resp
+
 
 loginPrompt :: 
     ( MonadReader UserEnv m
@@ -61,6 +76,7 @@ loginPrompt ::
     , MonadGameState m
     , MonadPrompt m
     , MonadTChan m
+    --, MonadError AppError m
     ) => m ()
 loginPrompt = do
     uidTVar   <- asks userEnvUserId

@@ -79,7 +79,7 @@ mainLoop = forever $ do
     uidTvar   <- liftIO . atomically $ newTVar Nothing
     let userEnv = UserEnv conn sock' stateTVar pubTChan' cmdTChan respTChan uidTvar
     liftIO . forkIO $ race_ (runAppM userEnv userLoop) 
-                            (dispatchLoop sock' respTChan pubTChan')
+                            (dispatchLoop sock' cmdTChan respTChan pubTChan')
 
 runAppM :: env -> AppM env a -> IO a
 runAppM env = flip runReaderT env . unAppM

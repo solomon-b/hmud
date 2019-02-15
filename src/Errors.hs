@@ -1,5 +1,7 @@
 module Errors where
 
+import Control.Exception
+
 --TODO: Identify use cases for all errors and how they should be handled.
 --TODO: Break up errors into types based on usage class and learn how to 
 --      unify them where necessary.
@@ -26,3 +28,5 @@ instance Show AppError where
     show UserNotInPlayerMap = "User not found in game."
     show InvalidCommand     = "Please enter a valid command."
     show (BadParse str)     = "Bad Parse: " ++ show str
+
+instance Exception AppError

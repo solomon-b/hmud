@@ -4,6 +4,7 @@
 module Types where
     
 import Control.Monad.Reader
+import Control.Monad.State
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
@@ -72,6 +73,11 @@ instance MonadIO m => MonadTChan (ReaderT env m) where
     duplicateChannel   = liftIO . atomically . dupTChan
     writeChannel tchan = liftIO . atomically . writeTChan tchan
     readChannel        = liftIO . atomically . readTChan
+instance MonadIO m => MonadTChan (StateT s m) where
+    createTChan        = liftIO . atomically $ newTChan
+    duplicateChannel   = liftIO . atomically . dupTChan
+    writeChannel tchan = liftIO . atomically . writeTChan tchan
+    readChannel        = liftIO . atomically . readTChan
 instance MonadTChan IO where
     createTChan        = atomically   newTChan
     duplicateChannel   = atomically . dupTChan
@@ -84,6 +90,10 @@ class Monad m => MonadTCP m where
     sendHandle'   :: Socket.Handle -> ByteString -> m ()
     --closeHandle'  :: Socket.Handle -> m ()
 instance MonadIO m => MonadTCP (ReaderT env m) where
+    acceptHandle' =  liftIO    . Socket.acceptHandle 
+    readHandle'   =  liftIO    . Socket.readHandle
+    sendHandle'   = (liftIO .) . Socket.sendHandle
+instance MonadIO m => MonadTCP (StateT s m) where
     acceptHandle' =  liftIO    . Socket.acceptHandle 
     readHandle'   =  liftIO    . Socket.readHandle
     sendHandle'   = (liftIO .) . Socket.sendHandle
@@ -166,15 +176,25 @@ data Response
     = RespSay Username Msg
     | RespLook Text
     | RespAnnounce Text
+    | RespPrompt Text
     | RespShutdown
     | RespExit
-    deriving Show
+
+instance Show Response where
+    show (RespSay user msg)  = concat ["<", show user, "> ", show msg]
+    show (RespLook text)     = show text
+    show (RespAnnounce text) = show text
+    show (RespPrompt text)   = show text
+    show RespShutdown        = "RespShutdown"
+    show RespExit            = "RespExit"
 
 instance TShow Response where
     tshow (RespSay username msg) = T.concat ["<", username, "> ", msg, "\r\n"]
     tshow (RespLook text) = T.concat [text, "\r\n"]
     tshow (RespAnnounce text) = T.concat [text, "\r\n"]
-    tshow resp = T.pack . show $ resp
+    tshow (RespPrompt text) = text
+    tshow RespShutdown = T.pack "RespShutdown"
+    tshow RespExit = T.pack "RespExit"
 
 type Msg = Text
 type Username = Text
