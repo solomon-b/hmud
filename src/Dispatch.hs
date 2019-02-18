@@ -12,11 +12,13 @@ import Control.Concurrent.STM (TChan)
 import Control.Monad (forever)
 import Control.Monad.Except
 import Control.Monad.Reader
-import Control.Monad.State
+import Control.Monad.State (MonadState, execStateT, put, get)
 import Data.ByteString as BS (pack)
 import Data.ByteString (ByteString)
+import Data.Text as T (pack)
 import Data.Text.Encoding (encodeUtf8)
 
+import Errors
 import Parser
 import Socket
 import TelnetLib
@@ -62,14 +64,14 @@ cmdLoopInner ::
     , MonadTCP m
     , MonadIO m
     , MonadState ParseState m
-    ) => Socket.Handle -> TChan Command -> m ()
+    ) => Socket.Handle -> TChan (Either AppError Command) -> m ()
 cmdLoopInner handle cmdChan = forever $ do
     s      <- get
     rawMsg <- readHandle' handle
     cmds   <- runExceptT $ parseRawMsg s rawMsg
     case cmds of
-        Right (cmd, s') -> writeChannel cmdChan cmd >> put s'
-        Left _ -> return () -- TODO: Log Error Here
+        Right (cmd, s') -> writeChannel cmdChan (Right cmd) >> put s'
+        Left e -> writeChannel cmdChan (Left e)
     where parseRawMsg state rawMsg = do
             bs <- processStream rawMsg
             case state of
@@ -89,22 +91,12 @@ dispatchLoop ::
     ( MonadTChan m
     , MonadTCP m
     , MonadIO m
-    ) => Socket.Handle -> TChan Command -> TChan Response -> TChan Response -> m ()
+    ) => Socket.Handle -> TChan (Either AppError Command) -> TChan Response -> TChan Response -> m ()
 dispatchLoop handle cmdChan respChan publicChan = 
     let respLoop :: IO ()
         respLoop = forever $ do
             resp <- readChannel respChan
             sendHandle' handle . encodeUtf8 $ tshow resp
-        --cmdLoop :: IO ()
-        --cmdLoop = forever $ do
-        --    rawMsg  <- readHandle' handle
-        --    let command :: Either AppError Command
-        --        command = do
-        --            bs      <- processStream rawMsg
-        --            runParse bs 
-        --    case command of
-        --        Left _ -> return () -- TODO: Log Here
-        --        Right command' -> writeChannel cmdChan command'
         cmdLoop :: IO ()
         cmdLoop = liftIO . void $ execStateT (cmdLoopInner handle cmdChan) Normal
         publicLoop :: IO ()

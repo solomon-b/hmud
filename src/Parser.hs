@@ -25,8 +25,8 @@ import SqliteLib (User(..))
 ---- Types ----
 ---------------
 
-data Command = 
-      GetUsers
+data Command 
+    = GetUsers
     | GetUser Text
     | AddUser User
     | Echo Text
@@ -46,12 +46,12 @@ data Direction =
     N | S | E | W | NW | NE | SW | SE | U | D deriving (Eq, Ord)
 
 instance Show Direction where
-    show U = "Up"
-    show D = "Down"
-    show N = "North"
-    show S = "South"
-    show E = "East"
-    show W = "West"
+    show U  = "Up"
+    show D  = "Down"
+    show N  = "North"
+    show S  = "South"
+    show E  = "East"
+    show W  = "West"
     show NW = "Northwest"
     show NE = "Northeast"
     show SW = "Southwest"

@@ -6,16 +6,17 @@ import Control.Exception
 --TODO: Break up errors into types based on usage class and learn how to 
 --      unify them where necessary.
 --TODO: Create TextShow instances for errors that get sent to the client.
-data AppError = NoSuchUser      -- ???
-           | NoSuchRoom         -- In Game
-           | NotLoggedIn        -- Auth
-           | AlreadyLoggedIn    -- Auth
-           | UserNotFound       -- Auth
-           | InvalidPassword    -- Auth
-           | PasswordsDontMatch -- Auth
-           | UserNotInPlayerMap -- System?
-           | InvalidCommand     -- In Game
-           | BadParse String    -- Parser
+data AppError 
+    = NoSuchUser         -- ???
+    | NoSuchRoom         -- In Game
+    | NotLoggedIn        -- Auth
+    | AlreadyLoggedIn    -- Auth
+    | UserNotFound       -- Auth
+    | InvalidPassword    -- Auth
+    | PasswordsDontMatch -- Auth
+    | UserNotInPlayerMap -- System?
+    | InvalidCommand     -- In Game
+    | BadParse String    -- Parser
 
 instance Show AppError where
     show NoSuchUser         = "There is no such user."

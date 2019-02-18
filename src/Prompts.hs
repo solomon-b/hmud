@@ -1,8 +1,11 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Prompts where
 
+import Control.Concurrent.STM
 import Control.Monad (void)
+import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.Map.Strict as M
@@ -42,8 +45,9 @@ mainMenuPrompt ::
     , MonadPrompt m
     , MonadTChan m
     , MonadPlayer m
-    ) => m ()
+    ) => m (Either AppError Response)
 mainMenuPrompt = do
+    env <- ask
     respTChan <- asks userEnvRespTchan
     mapM_ (writeChannel respTChan . RespAnnounce) ["Welcome to hMud", "Options: register, login, exit"]
     
@@ -52,10 +56,10 @@ mainMenuPrompt = do
     resp <- readChannel cmdTchan
 
     case resp of
-        Exit     -> return () -- TODO: Integrate Exit
-        Login    -> loginPrompt'
-        Register -> return () -- TODO: Integrate Registration Func
-        _        -> return ()
+        --Right Exit     -> return () -- TODO: Integrate Exit
+        Right Login    -> runExceptT $ runReaderT loginPrompt' env
+        --Right Register -> return () -- TODO: Integrate Registration Func
+        _        -> return $ Left InvalidCommand
 
 loginPrompt' ::
     ( MonadReader UserEnv m
@@ -64,23 +68,24 @@ loginPrompt' ::
     , MonadPrompt m
     , MonadTChan m
     , MonadPlayer m
-    ) => m ()
+    , MonadError AppError m
+    ) => m Response
 loginPrompt' = do
     activeUsers <- globalActiveUsers <$> readState
-    playerMap'   <- globalPlayerMap <$> readState
+    playerMap'  <- globalPlayerMap <$> readState
     respTChan   <- asks userEnvRespTchan
     cmdTchan    <- asks userEnvCmdTChan
     handle      <- asks getConnectionHandle
     users       <- liftIO $ getUsersDb handle
 
     writeChannel respTChan $ RespPrompt "Login: "
-    username <- readChannel cmdTchan
+    username <- readCmd cmdTchan
     writeChannel respTChan $ RespPrompt "Password: "
-    password <- readChannel cmdTchan
+    password <- readCmd cmdTchan
     let loginResult = verifyLogin username password users
 
     case loginResult of
-        Left _ -> return () -- TODO: Log Error
+        Left e -> throwError e -- TODO: Log Error
         Right user -> 
             if userIsLoggedIn activeUsers (userUserId user) 
             then loginPrompt'
@@ -92,6 +97,7 @@ loginPrompt' = do
                 setState $ GameState activeUsersMap world playerMap''
                 liftIO $ print $ userUsername user `T.append` " Logged In"
                 writeChannel respTChan $ RespAnnounce "Login Succesful"
+                return $ RespAnnounce "Login Successful"
 
 -- TODO: Replace with Lens
 verifyLogin :: Command -> Command -> [User] -> Either AppError User
@@ -146,6 +152,7 @@ registerPrompt = do
                 Right pass -> void . liftIO $ addUserDb conn (User 0 username pass) 
 
 gamePrompt :: 
+    forall m.
     ( MonadReader UserEnv m
     , MonadIO m
     , MonadPrompt m
@@ -158,7 +165,17 @@ gamePrompt = do
     respTChan <- asks userEnvRespTchan
     writeChannel respTChan $ RespPrompt "> "
     resp      <- readChannel cmdTchan
+    case resp of
+        Right cmd -> runExceptT $ runReaderT (execCommand cmd) env
+        Left err  -> return $ Left err
 
-    liftIO $ print resp
-    runReaderT (execCommand resp) env
 
+readCmd :: 
+    ( MonadTChan m
+    , MonadError AppError m
+    ) => TChan (Either AppError Command) -> m Command
+readCmd tchan = do
+  resp <- readChannel tchan
+  case resp of
+      Left err -> throwError err
+      Right cmd -> return cmd

@@ -7,6 +7,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM hiding (stateTVar)
 import Control.Monad (forever)
+import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.IO.Unlift
 import Control.Monad.IO.Class (liftIO)
@@ -61,13 +62,19 @@ userLoop = forever $ do
     pubTChan  <- asks userEnvPubTChan
     respTChan <- asks userEnvRespTchan
     case eUser of
+        -- User is logged in:
         Right _ -> do
-            response <- gamePrompt 
+            response <- gamePrompt
             case response of
-                Right resp@(RespSay _ _) -> writeChannel pubTChan resp
-                Right resp  -> writeChannel respTChan resp
-                Left  e     -> liftIO $ print e
-        Left _ -> mainMenuPrompt
+                Right (resp@(RespSay _ _)) -> writeChannel pubTChan resp
+                Right resp -> writeChannel respTChan resp
+                Left  e    -> writeChannel respTChan RespBadCommand >> liftIO (print e)
+        -- User is not logged in:
+        Left _ -> do
+            resp <- mainMenuPrompt
+            case resp of
+                Right resp' -> writeChannel respTChan resp'
+                Left  e     -> writeChannel respTChan RespBadCommand >> liftIO (print e)
 
 mainLoop :: AppM Env ()
 mainLoop = forever $ do

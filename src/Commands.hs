@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Commands where
 
+import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.IO.Class (liftIO)
 import Data.List (intersperse)
@@ -35,7 +36,8 @@ execCommand ::
     , MonadPlayer m
     , MonadGameState m
     , MonadThread m
-    ) => Command -> m (Either AppError Response)
+    , MonadError AppError m
+    ) => Command -> m Response
 execCommand GetUsers = execGetUsers
 execCommand (GetUser username) = execGetUser username
 execCommand (AddUser user) = execAddUser user
@@ -47,44 +49,48 @@ execCommand Whois = execWhois
 execCommand (Say msg) = execSay msg
 execCommand (Move dir) = execMovePlayer dir
 execCommand Look = execShowRoom
-execCommand _ = return $ Left InvalidCommand
+execCommand _ = throwError InvalidCommand
 
 
 execGetUsers ::
     ( MonadReader UserEnv m
     , MonadIO m
-    ) => m (Either AppError Response)
+    , MonadError AppError m
+    ) => m Response
 execGetUsers = do
     conn <- asks getConnectionHandle
     users <- liftIO $ getUsersDb conn
     let usernames = userUsername <$> users 
         newlineSeperated = T.concat $ intersperse "\n" usernames ++ pure (T.pack "\r\n")
-    return . Right $ RespAnnounce newlineSeperated
+    return $ RespAnnounce newlineSeperated
 
 execGetUser ::
     ( MonadReader UserEnv m
     , MonadIO m
-    ) => Text -> m (Either AppError Response)
+    , MonadError AppError m
+    ) => Text -> m Response
 execGetUser username = do
     conn <- asks getConnectionHandle
     eUser <- liftIO $ selectUser conn (T.strip username)
     case eUser of
-        Left err' -> return $ Left err'
-        Right user' -> return . Right . RespAnnounce $ formatUser user'
+        Left err' -> throwError err'
+        Right user' -> return . RespAnnounce $ formatUser user'
 
 execAddUser ::
     ( MonadReader UserEnv m
     , MonadIO m
-    ) => User -> m (Either AppError Response)
+    , MonadError AppError m
+    ) => User -> m Response
 execAddUser user = do
     conn <- asks getConnectionHandle
     result <- liftIO $ addUserDb conn user
-    return . Right $ RespAnnounce result
+    return $ RespAnnounce result
 
 execEcho :: 
     ( Monad m
-    ) => Text -> m (Either AppError Response)
-execEcho = return . Right . RespAnnounce
+    , MonadError AppError m
+    ) => Text -> m Response
+execEcho = return . RespAnnounce
 
 execExit ::
     ( MonadReader UserEnv m
@@ -92,10 +98,11 @@ execExit ::
     , MonadGameState m
     , MonadThread m
     , MonadPlayer m
-    ) => m (Either AppError Response)
+    , MonadError AppError m
+    ) => m Response
 execExit = do
     void execLogout 
-    return . Right $ RespAnnounce "Goodbye!"
+    return $ RespAnnounce "Goodbye!"
 
 execLogout ::
     ( MonadReader UserEnv m
@@ -103,32 +110,40 @@ execLogout ::
     , MonadGameState m
     , MonadThread m
     , MonadPlayer m
-    ) => m (Either AppError Response)
+    , MonadError AppError m
+    ) => m Response
 execLogout = do
     (GameState activePlayers _ playerMap') <- readState
     eUser <- getUser
     case eUser of
-        Left err -> return $ Left err
+        Left err -> throwError err
         Right user -> do
             let userId = userUserId user
                 activePlayers' = removeUser userId activePlayers
             setState $ GameState activePlayers' world playerMap'
-            return . Right $ RespAnnounce "Logged Out"
+            return $ RespAnnounce "Logged Out"
 
 execShutdown ::
-    (Monad m) => m (Either AppError Response)
-execShutdown = return . Right $ RespAnnounce "Shutting Down! Goodbye!" 
+    ( Monad m
+    , MonadError AppError m
+    ) => m Response
+execShutdown = return $ RespAnnounce "Shutting Down! Goodbye!" 
 
 execWhois ::
-    (MonadGameState m) => m (Either AppError Response)
-execWhois = Right . RespAnnounce . whois <$> readState
+    ( MonadGameState m
+    , MonadError AppError m
+    ) => m Response
+execWhois = RespAnnounce . whois <$> readState
 
-execSay :: (MonadPlayer m) => Text -> m (Either AppError Response)
+execSay :: 
+    ( MonadPlayer m
+    , MonadError AppError m
+    ) => Text -> m Response
 execSay msg = do
     eUser <- getUser
     case eUser of
-        Left err -> return $ Left err
-        Right user -> return . Right $ RespSay (userUsername user) msg
+        Left err -> throwError err
+        Right user -> return $ RespSay (userUsername user) msg
 
 execMovePlayer ::
     ( MonadReader UserEnv m
@@ -136,23 +151,24 @@ execMovePlayer ::
     , MonadGameState m
     , MonadThread m
     , MonadPlayer m
-    ) => Direction -> m (Either AppError Response)
+    , MonadError AppError m
+    ) => Direction -> m Response
 execMovePlayer dir = do
     state <- readState
     eCurrentRoom <- getUserLocation
     eUser <- getUser
     
     case eUser of
-        Left err -> return $ Left err
+        Left err -> throwError err
         Right (User uid _ _) -> do
             let eUidNewRid  = (,) <$> pure uid <*> destRoomId eCurrentRoom dir
             case eUidNewRid of
-                Left NoSuchRoom -> return . Right $ RespAnnounce "There is no path in that direction"
-                Left err -> return $ Left err
+                Left NoSuchRoom -> return $ RespAnnounce "There is no path in that direction"
+                Left err -> throwError err
                 Right (_, newRid) -> do
                     let playerMap' = findAndSwapPlayer uid newRid (globalPlayerMap state)
                     setState $ replacePlayerMap state playerMap'
-                    return . Right $ RespAnnounce "You have moved into a new room..."
+                    return $ RespAnnounce "You have moved into a new room..."
 
 execShowRoom ::
     ( MonadReader UserEnv m
@@ -160,7 +176,8 @@ execShowRoom ::
     , MonadGameState m
     , MonadPlayer m
     , MonadThread m
-    ) => m (Either AppError Response)
+    , MonadError AppError m
+    ) => m Response
 execShowRoom = do
     globalState' <- readState
     eRoom        <- getUserLocation
@@ -170,5 +187,5 @@ execShowRoom = do
             room <- eRoom
             showRoom' uid room globalState'
     case res of
-        Left  err      -> return $ Left err
-        Right roomText -> return . Right . RespAnnounce $ getRoomText roomText
+        Left  err      -> throwError err
+        Right roomText -> return . RespAnnounce $ getRoomText roomText

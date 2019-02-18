@@ -3,6 +3,7 @@
 --{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Types where
     
+import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.ByteString (ByteString)
@@ -62,6 +63,8 @@ class Monad m => MonadThread m where
     getThread :: m ThreadId
 instance MonadIO m => MonadThread (ReaderT env m) where
     getThread = liftIO myThreadId
+instance MonadIO m => MonadThread (ExceptT e m) where
+    getThread = liftIO myThreadId
 
 class Monad m => MonadTChan m where
     createTChan      :: m (TChan a)
@@ -74,6 +77,11 @@ instance MonadIO m => MonadTChan (ReaderT env m) where
     writeChannel tchan = liftIO . atomically . writeTChan tchan
     readChannel        = liftIO . atomically . readTChan
 instance MonadIO m => MonadTChan (StateT s m) where
+    createTChan        = liftIO . atomically $ newTChan
+    duplicateChannel   = liftIO . atomically . dupTChan
+    writeChannel tchan = liftIO . atomically . writeTChan tchan
+    readChannel        = liftIO . atomically . readTChan
+instance MonadIO m => MonadTChan (ExceptT e m) where
     createTChan        = liftIO . atomically $ newTChan
     duplicateChannel   = liftIO . atomically . dupTChan
     writeChannel tchan = liftIO . atomically . writeTChan tchan
@@ -155,13 +163,14 @@ data Env =
         } 
 
 data UserEnv =
-    UserEnv { userEnvConnHandle     :: SQL.Handle              -- Remove Soon?
-            , userEnvHandle         :: Socket.Handle           -- Remove Soon?
-            , userEnvStateTVar      :: TVar GameState          -- Shared State
-            , userEnvPubTChan       :: TChan Response          -- Public Message Channel
-            , userEnvCmdTChan       :: TChan Command           -- Read Commands from the socket
-            , userEnvRespTchan      :: TChan Response          -- Write Responses to the socket
-            , userEnvUserId         :: TVar (Maybe SQL.UserId) -- Current User ID
+    UserEnv { userEnvConnHandle :: SQL.Handle              -- Remove Soon?
+            , userEnvHandle     :: Socket.Handle           -- Remove Soon?
+            , userEnvStateTVar  :: TVar GameState          -- Shared State
+            , userEnvPubTChan   :: TChan Response          -- Public Message Channel
+            --, userEnvCmdTChan   :: TChan Command           -- Read Commands from the socket
+            , userEnvCmdTChan   :: TChan (Either AppError Command) -- Read Commands from the socket
+            , userEnvRespTchan  :: TChan Response          -- Write Responses to the socket
+            , userEnvUserId     :: TVar (Maybe SQL.UserId) -- Current User ID
             }
 
 type ActiveUsers = Map SQL.UserId SQL.User
@@ -183,6 +192,8 @@ data Response
     | RespPrompt Text
     | RespShutdown
     | RespExit
+    | RespAppErr
+    | RespBadCommand
 
 instance Show Response where
     show (RespSay user msg)  = concat ["<", show user, "> ", show msg]
@@ -191,14 +202,18 @@ instance Show Response where
     show (RespPrompt text)   = show text
     show RespShutdown        = "RespShutdown"
     show RespExit            = "RespExit"
+    show RespAppErr          = "RespAppErr"
+    show RespBadCommand      = "Please enter a valid command"
 
 instance TShow Response where
     tshow (RespSay username msg) = T.concat ["<", username, "> ", msg, "\r\n"]
-    tshow (RespLook text) = T.concat [text, "\r\n"]
-    tshow (RespAnnounce text) = T.concat [text, "\r\n"]
-    tshow (RespPrompt text) = text
-    tshow RespShutdown = T.pack "RespShutdown"
-    tshow RespExit = T.pack "RespExit"
+    tshow (RespLook text)        = T.concat [text, "\r\n"]
+    tshow (RespAnnounce text)    = T.concat [text, "\r\n"]
+    tshow (RespPrompt text)      = text
+    tshow RespShutdown           = T.pack "RespShutdown\r\n"
+    tshow RespExit               = T.pack "RespExit\r\n"
+    tshow RespAppErr             = T.pack "RespAppErr\r\n"
+    tshow RespBadCommand         = T.pack "Please enter a valid command\r\n"
 
 type Msg = Text
 type Username = Text
