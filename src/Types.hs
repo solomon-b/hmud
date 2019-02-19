@@ -19,6 +19,7 @@ import Errors
 import Parser (Command, Direction)
 import qualified Socket 
 import qualified SqliteLib as SQL
+import SqliteLib (User, UserId)
 import TelnetLib (processStream)
 
 ---------------------
@@ -53,8 +54,8 @@ instance HasSocketHandle UserEnv where
     getSocketHandle = userEnvHandle
 
 class HasUserId env where
-    getUserId :: env -> TVar (Maybe SQL.UserId)
-instance HasUserId (TVar (Maybe SQL.UserId)) where
+    getUserId :: env -> TVar (Maybe UserId)
+instance HasUserId (TVar (Maybe UserId)) where
     getUserId = id
 instance HasUserId UserEnv where
     getUserId = userEnvUserId
@@ -110,6 +111,15 @@ instance MonadTCP IO where
     readHandle'   = Socket.readHandle
     sendHandle'   = Socket.sendHandle
 
+class Monad m => MonadDB m where
+    insertUser     :: SQL.Handle -> User -> m User
+    selectUser     :: SQL.Handle -> Text -> m (Either AppError User)
+    selectAllUsers :: SQL.Handle -> m [User]
+instance MonadIO m => MonadDB (ReaderT env m) where
+    insertUser handle user  = liftIO $ SQL.insertUser handle user
+    selectUser handle text  = liftIO $ SQL.selectUser handle text
+    selectAllUsers          = liftIO . SQL.selectAllUsers
+
 class MonadTCP m => MonadPrompt m where
     prompt :: ByteString -> m ByteString
 instance (HasSocketHandle env, MonadIO m) => MonadPrompt (ReaderT env m) where
@@ -131,8 +141,8 @@ instance (HasState env, MonadIO m) => MonadGameState (ReaderT env m) where
     readState     = asks getState >>= (liftIO . atomically . readTVar)
 
 class Monad m => MonadPlayer m where
-    getUser :: m (Either AppError SQL.User)
-    setUser :: SQL.UserId -> m ()
+    getUser :: m (Either AppError User)
+    setUser :: UserId -> m ()
 instance ( HasUserId env
          , HasState env
          , MonadIO m
@@ -170,10 +180,10 @@ data UserEnv =
             --, userEnvCmdTChan   :: TChan Command           -- Read Commands from the socket
             , userEnvCmdTChan   :: TChan (Either AppError Command) -- Read Commands from the socket
             , userEnvRespTchan  :: TChan Response          -- Write Responses to the socket
-            , userEnvUserId     :: TVar (Maybe SQL.UserId) -- Current User ID
+            , userEnvUserId     :: TVar (Maybe UserId) -- Current User ID
             }
 
-type ActiveUsers = Map SQL.UserId SQL.User
+type ActiveUsers = Map UserId User
 data GameState = 
     GameState { globalActiveUsers :: ActiveUsers
               , globalWorld       :: World
@@ -189,31 +199,24 @@ data Response
     = RespSay Username Msg
     | RespLook Text
     | RespAnnounce Text
-    | RespPrompt Text
+    | Prompt Text
     | RespShutdown
     | RespExit
-    | RespAppErr
-    | RespBadCommand
+    | RespAppError AppError
 
 instance Show Response where
     show (RespSay user msg)  = concat ["<", show user, "> ", show msg]
     show (RespLook text)     = show text
     show (RespAnnounce text) = show text
-    show (RespPrompt text)   = show text
+    show (Prompt text)   = show text
     show RespShutdown        = "RespShutdown"
     show RespExit            = "RespExit"
-    show RespAppErr          = "RespAppErr"
-    show RespBadCommand      = "Please enter a valid command"
+    show (RespAppError err)  = show err
 
 instance TShow Response where
     tshow (RespSay username msg) = T.concat ["<", username, "> ", msg, "\r\n"]
-    tshow (RespLook text)        = T.concat [text, "\r\n"]
-    tshow (RespAnnounce text)    = T.concat [text, "\r\n"]
-    tshow (RespPrompt text)      = text
-    tshow RespShutdown           = T.pack "RespShutdown\r\n"
-    tshow RespExit               = T.pack "RespExit\r\n"
-    tshow RespAppErr             = T.pack "RespAppErr\r\n"
-    tshow RespBadCommand         = T.pack "Please enter a valid command\r\n"
+    tshow (Prompt text)      = text
+    tshow resp                   = T.pack $ show resp ++ "\r\n"
 
 type Msg = Text
 type Username = Text
@@ -230,7 +233,7 @@ type Name = Text
 type Description = Text
 type RoomId      = Integer
 type World       = Map RoomId Room
-type PlayerMap   = Map RoomId [SQL.UserId]
+type PlayerMap   = Map RoomId [UserId]
 
 
 data Room = 

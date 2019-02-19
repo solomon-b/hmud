@@ -4,7 +4,6 @@ module Commands where
 
 import Control.Monad.Except
 import Control.Monad.Reader
-import Control.Monad.IO.Class (liftIO)
 import Data.List (intersperse)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -12,11 +11,12 @@ import qualified Data.Text as T
 import Errors
 import Room
 import Parser
-import SqliteLib
+import SqliteLib (User(..), formatUser)
 import State
 import Types 
     ( GameState(..)
     , HasConnectionHandle(..)
+    , MonadDB(..)
     , MonadGameState(..)
     , MonadPlayer(..)
     , MonadTCP(..)
@@ -30,7 +30,7 @@ import World
 
 execCommand ::
     ( MonadReader UserEnv m
-    , MonadIO m
+    , MonadDB m
     , MonadTCP m
     , MonadTChan m
     , MonadPlayer m
@@ -41,7 +41,6 @@ execCommand ::
 execCommand GetUsers = execGetUsers
 execCommand (GetUser username) = execGetUser username
 execCommand (AddUser user) = execAddUser user
-execCommand (Echo msg) = execEcho msg
 execCommand Exit = execExit
 execCommand Logout = execLogout
 execCommand Shutdown = execShutdown
@@ -52,49 +51,46 @@ execCommand Look = execShowRoom
 execCommand _ = throwError InvalidCommand
 
 
+-- TODO: Remove MonadIO. Create MonadDB
 execGetUsers ::
     ( MonadReader UserEnv m
-    , MonadIO m
+    , MonadDB m
     , MonadError AppError m
     ) => m Response
 execGetUsers = do
-    conn <- asks getConnectionHandle
-    users <- liftIO $ getUsersDb conn
+    conn  <- asks getConnectionHandle
+    users <- selectAllUsers conn
     let usernames = userUsername <$> users 
         newlineSeperated = T.concat $ intersperse "\n" usernames ++ pure (T.pack "\r\n")
     return $ RespAnnounce newlineSeperated
 
+-- TODO: Remove MonadIO. Create MonadDB
 execGetUser ::
     ( MonadReader UserEnv m
-    , MonadIO m
+    , MonadDB m
     , MonadError AppError m
     ) => Text -> m Response
 execGetUser username = do
     conn <- asks getConnectionHandle
-    eUser <- liftIO $ selectUser conn (T.strip username)
+    eUser <- selectUser conn (T.strip username)
     case eUser of
         Left err' -> throwError err'
         Right user' -> return . RespAnnounce $ formatUser user'
 
+-- TODO: Remove MonadIO. Create MonadDB
 execAddUser ::
     ( MonadReader UserEnv m
-    , MonadIO m
+    , MonadDB m
     , MonadError AppError m
     ) => User -> m Response
 execAddUser user = do
     conn <- asks getConnectionHandle
-    result <- liftIO $ addUserDb conn user
-    return $ RespAnnounce result
+    User _ username _ <- insertUser conn user
+    return . RespAnnounce $ T.concat [username, " was added to the database"]
 
-execEcho :: 
-    ( Monad m
-    , MonadError AppError m
-    ) => Text -> m Response
-execEcho = return . RespAnnounce
-
+-- TODO: Logout and disconnect client.
 execExit ::
     ( MonadReader UserEnv m
-    , MonadIO m
     , MonadGameState m
     , MonadThread m
     , MonadPlayer m
@@ -106,7 +102,6 @@ execExit = do
 
 execLogout ::
     ( MonadReader UserEnv m
-    , MonadIO m
     , MonadGameState m
     , MonadThread m
     , MonadPlayer m
@@ -123,6 +118,7 @@ execLogout = do
             setState $ GameState activePlayers' world playerMap'
             return $ RespAnnounce "Logged Out"
 
+-- TODO: Gracefully shutdown server.
 execShutdown ::
     ( Monad m
     , MonadError AppError m
@@ -135,7 +131,7 @@ execWhois ::
     ) => m Response
 execWhois = RespAnnounce . whois <$> readState
 
-execSay :: 
+execSay ::
     ( MonadPlayer m
     , MonadError AppError m
     ) => Text -> m Response
@@ -147,7 +143,6 @@ execSay msg = do
 
 execMovePlayer ::
     ( MonadReader UserEnv m
-    , MonadIO m
     , MonadGameState m
     , MonadThread m
     , MonadPlayer m
@@ -172,7 +167,6 @@ execMovePlayer dir = do
 
 execShowRoom ::
     ( MonadReader UserEnv m
-    , MonadIO m
     , MonadGameState m
     , MonadPlayer m
     , MonadThread m
@@ -183,7 +177,7 @@ execShowRoom = do
     eRoom        <- getUserLocation
     eUser        <- getUser
     let res = do
-            (User uid _ _)  <- eUser
+            uid <- userUserId <$> eUser
             room <- eRoom
             showRoom' uid room globalState'
     case res of

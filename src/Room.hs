@@ -4,9 +4,7 @@ module Room where
 -- This module will be pure functions related to Room manipulation and rendering
 
 
-import Control.Concurrent.STM
-import qualified Control.Monad.Reader as R
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Reader
 import Data.List (intercalate)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -22,6 +20,7 @@ import Parser (Direction(..))
 import Types 
     ( GameState(..)
     , MonadGameState(..)
+    , MonadPlayer(..)
     , MonadThread(..)
     , Room(..)
     , RoomId
@@ -41,22 +40,22 @@ destRoomId eRoom dir = do
     maybeToEither NoSuchRoom (roomAdjacent room M.!? dir)
 
 getUserLocation ::
-    ( R.MonadReader UserEnv m
-    , R.MonadIO m
+    ( MonadReader UserEnv m
     , MonadGameState m
+    , MonadPlayer m
     , MonadThread m
     ) => m (Either AppError Room) 
 getUserLocation = do
     playerMap' <- globalPlayerMap <$> readState
-    tvarUid    <- R.asks userEnvUserId --getUserId
-    mUid       <- liftIO . atomically $ readTVar tvarUid
-    let eUid = maybe (Left NoSuchUser) Right mUid
-    case eUid >>= flip findPlayer playerMap' of
-        Left err -> liftIO . pure $ Left err
-        Right (rid, _) -> do 
-            liftIO . putStrLn $ "user is in room: " ++ show rid
-            -- TODO: Logout of one account and into another and this blowsup:
-            liftIO . pure . Right $ world M.! rid
+    eUser      <- getUser
+    case eUser of
+        Left err -> return $ Left err
+        Right user -> 
+            case findPlayer (userUserId user) playerMap' of
+                Left err -> return $ Left err
+                Right (rid, _) -> 
+                    -- TODO: Logout of one account and into another and this blowsup:
+                    return . Right $ world M.! rid
 
 getUsersInRoom :: UserId -> RoomId -> GameState -> Either AppError [User]
 getUsersInRoom uid rid (GameState activeUsers' _ playerMap') = do
@@ -71,27 +70,6 @@ getUsersInRoom uid rid (GameState activeUsers' _ playerMap') = do
 showRoom' :: UserId -> Room -> GameState -> Either AppError RoomText
 showRoom' uid room state =
     packRoomText room <$> getUsersInRoom uid (roomRoomId room) state
-
---showRoom ::
---    ( R.MonadReader UserEnv m
---    , R.MonadIO m
---    , MonadGameState m
---    , MonadThread m
---    , MonadTCP m
---    ) => m ()
---showRoom = do
---    globalState' <- readState
---    tvarUid      <- R.asks userEnvUserId --getUserId
---    mUid         <- liftIO . atomically $ readTVar tvarUid
---    let eUid = maybe (Left NoSuchUser) Right mUid
---    eRoom        <- getUserLocation
---    let res = do
---            uid  <- eUid
---            room <- eRoom
---            showRoom' uid room globalState'
---    case res of
---        Left err       -> liftIO  $ print err
---        Right roomText -> sendMsg $ getRoomText roomText
 
 packRoomText :: Room -> [User] -> RoomText
 packRoomText room players = 

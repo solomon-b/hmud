@@ -6,11 +6,10 @@ module SqliteLib
     , User(..)
     , UserId
     , withHandle
+    , insertUser
     , selectUser
+    , selectAllUsers
     , formatUser
-    , getUsersDb
-    , getUserDb
-    , addUserDb
     ) where
 
 import Control.Exception (Exception, bracket, throwIO)
@@ -88,8 +87,8 @@ insertUserQuery =
     "INSERT INTO users\
     \ VALUES (?, ?, ?)"
 
-selectUsersQuery :: Query
-selectUsersQuery =
+selectAllUsersQuery :: Query
+selectAllUsersQuery =
     "SELECT * from users"
 
 selectUserQuery :: Query
@@ -106,7 +105,7 @@ createDatabase = do
     conn <-  open "hmud.db"
     execute_ conn createUserTableQuery
     execute conn insertUserQuery defUser
-    users <- query_ conn selectUsersQuery
+    users <- query_ conn selectAllUsersQuery
     mapM_ print (users :: [User])
     SQLite.close conn
     where defUser :: UserRow
@@ -137,27 +136,11 @@ selectUser (Handle conn) user = do
         [user'] -> return $ Right user'
         _ -> throwIO DuplicateData
 
-insertUser :: Handle -> [Text] -> IO (Either Text User)
-insertUser (Handle conn) user =
-    case constructUser user of
-        Left err -> return $ Left err
-        Right user' -> do
-                execute conn insertUserQuery user'
-                return $ Right user'
+selectAllUsers :: Handle -> IO [User]
+selectAllUsers (Handle conn) = query_ conn selectAllUsersQuery
 
-addUserDb :: Handle -> User -> IO Text
-addUserDb handle (User _ username password) = do
-    eInserted <- insertUser handle [username, password]
-    case eInserted of
-        Left err' -> print err' >> return "Problem adding user"
-        Right res -> return $ formatUser res
+insertUser :: Handle -> User -> IO User
+insertUser (Handle conn) user = do
+    execute conn insertUserQuery user
+    return user
 
-getUserDb :: Handle -> Text -> IO Text
-getUserDb handle username = do
-    eUser <- selectUser handle (T.strip username)
-    case eUser of
-        Left err' -> print err' >> return "Problem finding user"
-        Right user' -> return $ formatUser user'
-
-getUsersDb :: Handle -> IO [User]
-getUsersDb (Handle conn) = query_ conn selectUsersQuery

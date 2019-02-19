@@ -1,6 +1,4 @@
-{-# LANGUAGE FlexibleContexts #-}
 module State where
--- This module will be pure functions related to manipulating the GameState
 
 import qualified Data.Map.Strict as M
 import Data.List (intersperse, find)
@@ -28,18 +26,6 @@ maybeToEither a Nothing = Left a
 ----------------------------------
 ---- GameState Manipulation ----
 ----------------------------------
-
-
---getUserId ::
---    ( MonadReader UserEnv m
---    , MonadThread m
---    , MonadGameState m
---    ) => m (Either AppError UserId)
---getUserId = do
---    activeUsers <- globalActiveUsers <$> readState
---    thread <- getThread
---    return $ userUserId <$> getUserByThread thread activeUsers
-
 ---- Pure Getter/Setters ---
     
 --- ActiveUsers ---
@@ -51,17 +37,6 @@ addUser :: User -> ActiveUsers -> ActiveUsers
 addUser user activeUsers = 
     let uid = userUserId user
     in M.insert uid user activeUsers
-
---getUserByThread :: ThreadId -> ActiveUsers -> Either AppError User
---getUserByThread tid activeUsers =
---    let users :: [(UserId, User)]
---        users = M.toList activeUsers
---        f :: (UserId, User) -> Bool
---        f (_, (_, tid')) = tid == tid'
---    in case find f users of
---        Nothing -> Left NotLoggedIn
---        Just user -> Right user
-
 
 whois :: GameState -> Text
 whois state =

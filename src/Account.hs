@@ -23,9 +23,6 @@ checkPassword pass user
     | pass /= userPassword user = Left InvalidPassword
     | otherwise = Right user
 
-checkLogin :: [User] -> Text -> Either AppError User
-checkLogin = findUserByName
-
 -- TODO: Add minimum password strength req
 validatePassword :: ByteString -> ByteString -> Either AppError Text
 validatePassword pass1BS pass2BS = do
@@ -34,8 +31,8 @@ validatePassword pass1BS pass2BS = do
     case (parsedPass1, parsedPass2) of
         (Right pass1, Right pass2) | pass1 == pass2 -> Right pass1
                                    | otherwise -> Left PasswordsDontMatch
-        (Right _, Left err2) -> Left . BadParse $ show err2
-        (Left err1, _) -> Left . BadParse $ show err1
+        (Right _, Left _) -> Left InvalidCommand
+        (Left _, _) -> Left InvalidCommand
     
 findUserByName :: [User] -> Text -> Either AppError User
 findUserByName users acc =

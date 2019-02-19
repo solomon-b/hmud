@@ -14,8 +14,6 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State (MonadState, execStateT, put, get)
 import Data.ByteString as BS (pack)
-import Data.ByteString (ByteString)
-import Data.Text as T (pack)
 import Data.Text.Encoding (encodeUtf8)
 
 import Errors

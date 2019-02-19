@@ -97,4 +97,4 @@ processStream bs =
     let stream = BS.unpack bs
         startingState = MessageState Nothing Normal
         (MessageState bs' _)  = execState (mapM_ handleStream stream) startingState
-    in maybe (throwError $ BadParse "Empty Message") return bs'
+    in maybe (throwError InvalidCommand) return bs'

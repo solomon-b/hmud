@@ -16,7 +16,6 @@ data AppError
     | PasswordsDontMatch -- Auth
     | UserNotInPlayerMap -- System?
     | InvalidCommand     -- In Game
-    | BadParse String    -- Parser
 
 instance Show AppError where
     show NoSuchUser         = "There is no such user."
@@ -28,6 +27,5 @@ instance Show AppError where
     show PasswordsDontMatch = "Your password entries don not match."
     show UserNotInPlayerMap = "User not found in game."
     show InvalidCommand     = "Please enter a valid command."
-    show (BadParse str)     = "Bad Parse: " ++ show str
 
 instance Exception AppError

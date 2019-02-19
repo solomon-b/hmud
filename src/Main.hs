@@ -21,6 +21,7 @@ import qualified SqliteLib as SQL
 import Types 
     ( Env(..)
     , GameState(..)
+    , MonadDB(..)
     , MonadTChan(..)
     , MonadGameState(..)
     , MonadTCP(..)
@@ -38,6 +39,7 @@ newtype AppM env a = App { unAppM :: ReaderT env IO a}
              , Monad
              , MonadIO
              , MonadUnliftIO
+             , MonadDB
              , MonadReader env
              , MonadGameState
              , MonadPlayer
@@ -49,6 +51,7 @@ newtype AppM env a = App { unAppM :: ReaderT env IO a}
 
 userLoop ::
     ( MonadReader UserEnv m
+    , MonadDB m
     , MonadGameState m
     , MonadThread m
     , MonadUnliftIO m
@@ -68,13 +71,13 @@ userLoop = forever $ do
             case response of
                 Right (resp@(RespSay _ _)) -> writeChannel pubTChan resp
                 Right resp -> writeChannel respTChan resp
-                Left  e    -> writeChannel respTChan RespBadCommand >> liftIO (print e)
+                Left  err  -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
         -- User is not logged in:
         Left _ -> do
             resp <- mainMenuPrompt
             case resp of
                 Right resp' -> writeChannel respTChan resp'
-                Left  e     -> writeChannel respTChan RespBadCommand >> liftIO (print e)
+                Left  err   -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
 
 mainLoop :: AppM Env ()
 mainLoop = forever $ do

@@ -69,10 +69,11 @@ genParser :: (String, Maybe String, Command) -> Parser Command
 genParser (str, mStr, comm) = token $
     case mStr of
         Just mstr' -> do
-            void $ symbol str <|> (symbol mstr' <* eof)
+            void $ (symbol str <* eof) <|> (symbol mstr' <* eof)
             return comm
         Nothing -> do
             void $ symbol str
+            eof
             return comm
 
 mainMenuCommands :: [(String, Maybe String, Command)]
@@ -113,7 +114,6 @@ commandParsers :: [Parser Command]
 commandParsers = parserGetUser
                : parserAddUser
                : parserSay
-               : parserEcho
                : fmap genParser (userCommands ++ adminCommands)
 
 mainMenuParsers :: [Parser Command]
@@ -140,12 +140,6 @@ parserSay = token $ do
     str <- anyChar `manyTill` (char '\r' <|> char '\n')
     return $ Say (T.pack str)
 
-parserEcho :: Parser Command
-parserEcho = token $ do
-    void $ symbol "echo"
-    str <- anyChar `manyTill` (char '\r' <|> char '\n')
-    return $ Echo (T.pack str)
-
 
 commandParser :: Parser Command
 commandParser = choice commandParsers
@@ -158,7 +152,7 @@ runParse' parser bs =
     let parse = parseByteString parser mempty bs
     in case parse of
         Success cmd -> return cmd
-        Failure msg -> throwError . BadParse $ show msg
+        Failure _   -> throwError InvalidCommand
 
 runParse :: MonadError AppError m => ByteString -> m Command
 runParse = runParse' (try commandParser <|> try mainMenuParser)
@@ -170,5 +164,5 @@ runWordParse :: MonadError AppError m => ByteString -> m Text
 runWordParse = runParse' word
     
 resultToEither :: Result a -> Either AppError a
-resultToEither (Failure err') = Left . BadParse $ show err'
+resultToEither (Failure _) = Left InvalidCommand
 resultToEither (Success a) = Right a
