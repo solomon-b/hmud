@@ -51,7 +51,6 @@ execCommand Look = execShowRoom
 execCommand _ = throwError InvalidCommand
 
 
--- TODO: Remove MonadIO. Create MonadDB
 execGetUsers ::
     ( MonadReader UserEnv m
     , MonadDB m
@@ -64,7 +63,6 @@ execGetUsers = do
         newlineSeperated = T.concat $ intersperse "\n" usernames ++ pure (T.pack "\r\n")
     return $ RespAnnounce newlineSeperated
 
--- TODO: Remove MonadIO. Create MonadDB
 execGetUser ::
     ( MonadReader UserEnv m
     , MonadDB m
@@ -77,7 +75,6 @@ execGetUser username = do
         Left err' -> throwError err'
         Right user' -> return . RespAnnounce $ formatUser user'
 
--- TODO: Remove MonadIO. Create MonadDB
 execAddUser ::
     ( MonadReader UserEnv m
     , MonadDB m

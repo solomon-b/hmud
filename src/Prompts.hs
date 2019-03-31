@@ -10,7 +10,6 @@ import Control.Monad.Reader
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.ByteString (ByteString)
 
 import Account
 import Commands
@@ -19,7 +18,7 @@ import Errors
 import Parser
 import State
 import SqliteLib (User(..))
-import Types 
+import Types
     ( GameState(..)
     , HasConnectionHandle(..)
     , MonadDB(..)
@@ -34,9 +33,6 @@ import Types
 import World
 
 
-test :: MonadPrompt m => m ByteString
-test = prompt "$ "
-
 mainMenuPrompt ::
     ( MonadReader UserEnv m
     , MonadIO m
@@ -50,7 +46,7 @@ mainMenuPrompt = do
     env <- ask
     respTChan <- asks userEnvRespTchan
     mapM_ (writeChannel respTChan . RespAnnounce) ["Welcome to hMud", "Options: register, login, exit"]
-    
+
     cmdTchan  <- asks userEnvCmdTChan
     writeChannel respTChan $ Prompt "> "
     resp <- readChannel cmdTchan
@@ -81,15 +77,17 @@ loginPrompt = do
     writeChannel respTChan $ Prompt "Login: "
     username <- readCmd cmdTchan
     writeChannel respTChan $ Prompt "Password: "
+    suppressEcho
     password <- readCmd cmdTchan
+    unsuppressEcho
     let loginResult = verifyLogin username password users
 
     case loginResult of
         Left e -> throwError e
-        Right user -> 
-            if userIsLoggedIn activeUsers (userUserId user) 
+        Right user ->
+            if userIsLoggedIn activeUsers (userUserId user)
             then loginPrompt
-            else do 
+            else do
                 let uid = userUserId user
                     activeUsersMap = M.insert (userUserId user) user activeUsers
                     playerMap'' = addPlayer uid 1 playerMap'
@@ -123,10 +121,10 @@ passwordRegPrompt ::
     ) => m (Either AppError Text)
 passwordRegPrompt = do
     suppressEcho
-    passwordBS  <- prompt "password: "
-    passwordBS' <- prompt "repeat password: "
+    password  <- prompt "password: "
+    password' <- prompt "repeat password: "
     unsuppressEcho
-    return $ validatePassword passwordBS passwordBS'
+    return $ validatePassword password password'
 
 registerPrompt ::
     ( MonadReader UserEnv m
@@ -134,23 +132,20 @@ registerPrompt ::
     , MonadPrompt m
     ) => m ()
 registerPrompt = do
-    conn <- asks getConnectionHandle
-    users <- selectAllUsers conn
-    
-    usernameBS <- prompt "username: "
-    let usernameE = validateUsername users usernameBS
-    
-    case usernameE of
+    conn     <- asks getConnectionHandle
+    users    <- selectAllUsers conn
+    username <- prompt "username: "
+    case validateUsername users username of
         -- TODO: Handle bad username/password notification
         Left _ -> registerPrompt
-        Right username -> do
+        Right username' -> do
             passwordM <- passwordRegPrompt
             case passwordM of
                 -- TODO: Only require the user to re-enter password
                 Left _     -> registerPrompt
-                Right pass -> void $ insertUser conn (User 0 username pass) 
+                Right pass -> void $ insertUser conn (User 0 username' pass)
 
-gamePrompt :: 
+gamePrompt ::
     forall m.
     ( MonadReader UserEnv m
     , MonadIO m
@@ -169,7 +164,7 @@ gamePrompt = do
         Left err  -> return $ Left err
 
 
-readCmd :: 
+readCmd ::
     ( MonadTChan m
     , MonadError AppError m
     ) => TChan (Either AppError Command) -> m Command

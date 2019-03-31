@@ -9,7 +9,7 @@ import Control.Monad.State
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
-import qualified Data.Text as T (concat, pack)
+import qualified Data.Text as T (concat, pack, append)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Control.Concurrent (ThreadId, myThreadId)
@@ -20,7 +20,7 @@ import Parser (Command, Direction)
 import qualified Socket 
 import qualified SqliteLib as SQL
 import SqliteLib (User, UserId)
-import TelnetLib (processStream)
+import TelnetLib
 
 ---------------------
 ---- MTL Classes ----
@@ -127,9 +127,9 @@ instance (HasSocketHandle env, MonadIO m) => MonadPrompt (ReaderT env m) where
         handle <- asks getSocketHandle
         sendHandle' handle (BS.append prefix (BS.pack [255, 249]))
         rawMsg <- readHandle' handle
-        case processStream rawMsg of
-            Left _   -> prompt ""
-            Right msg -> return msg
+        case (unBuffer . processStream) rawMsg of
+            Nothing  -> prompt ""
+            Just msg -> return msg
 
 class Monad m => MonadGameState m where
     modifyState :: (GameState -> GameState) -> m ()
@@ -214,9 +214,12 @@ instance Show Response where
     show (RespAppError err)  = show err
 
 instance TShow Response where
-    tshow (RespSay username msg) = T.concat ["<", username, "> ", msg, "\r\n"]
-    tshow (Prompt text)      = text
-    tshow resp                   = T.pack $ show resp ++ "\r\n"
+    tshow (RespSay uname msg) = T.concat ["<", uname, "> ", msg, "\r\n"]
+    tshow (RespLook text)     = T.append text "\r\n"
+    tshow (RespAnnounce text) = T.append text "\r\n"
+    tshow (Prompt text)       = text
+    tshow resp                = T.pack $ show resp ++ "\r\n"
+        
 
 type Msg = Text
 type Username = Text

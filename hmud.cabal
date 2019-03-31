@@ -41,6 +41,7 @@ executable hmud
                      , sqlite-simple
                      , stm
                      , text
+                     , text-conversions
                      , transformers
                      , trifecta
                      , unliftio-core
@@ -65,12 +66,13 @@ library
                      , async
                      , bytestring
                      , containers
+                     , mtl
+                     , network
                      , raw-strings-qq
                      , sqlite-simple
                      , stm
                      , text
-                     , network
-                     , mtl
+                     , text-conversions
                      , trifecta
                      , transformers
                      , unliftio-core

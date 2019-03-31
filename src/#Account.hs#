@@ -17,6 +17,9 @@ maybeToEither :: a -> Maybe b -> Either a b
 maybeToEither _ (Just b) = Right b
 maybeToEither a Nothing = Left a
 
+foo :: p -> p
+foo a = a
+
 checkPassword :: Text -> User -> Either AppError User
 checkPassword pass user
     | pass /= userPassword user = Left InvalidPassword

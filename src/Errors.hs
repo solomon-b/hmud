@@ -16,6 +16,7 @@ data AppError
     | PasswordsDontMatch -- Auth
     | UserNotInPlayerMap -- System?
     | InvalidCommand     -- In Game
+    | IgnoredResponse    -- Response codes passed back by the telnet client I don't care about.
 
 instance Show AppError where
     show NoSuchUser         = "There is no such user."
@@ -27,5 +28,6 @@ instance Show AppError where
     show PasswordsDontMatch = "Your password entries don not match."
     show UserNotInPlayerMap = "User not found in game."
     show InvalidCommand     = "Please enter a valid command."
+    show IgnoredResponse    = "Telnet Client response we don't care about."
 
 instance Exception AppError

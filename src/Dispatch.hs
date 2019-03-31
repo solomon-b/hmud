@@ -1,26 +1,28 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Dispatch where
 
 {-
-Message Dispatching to the telnet client.
+Message Dispatching to/from the telnet client.
 -}
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM (TChan)
 import Control.Monad (forever)
+import Control.Monad.Cont
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State (MonadState, execStateT, put, get)
+import Data.ByteString (ByteString)
 import Data.ByteString as BS (pack)
+import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 
 import Errors
 import Parser
 import Socket
 import TelnetLib
-import Types 
+import Types
     ( UserEnv(..)
     , HasSocketHandle(..)
     , MonadTChan(..)
@@ -57,7 +59,7 @@ unsuppressEcho = do
     sock <- asks getSocketHandle
     sendHandle' sock $ BS.pack [255,252,1]
 
-cmdLoopInner :: 
+cmdLoopInner ::
     ( MonadTChan m
     , MonadTCP m
     , MonadIO m
@@ -66,23 +68,30 @@ cmdLoopInner ::
 cmdLoopInner handle cmdChan = forever $ do
     s      <- get
     rawMsg <- readHandle' handle
-    cmds   <- runExceptT $ parseRawMsg s rawMsg
+    liftIO $ print rawMsg
+    let cmds = runExcept $ parseRawMsg s rawMsg
+    liftIO $ putStrLn $ "Raw Message:" ++ show rawMsg
+    liftIO $ print s
     case cmds of
-        Right (cmd, s') -> writeChannel cmdChan (Right cmd) >> put s'
-        Left e -> writeChannel cmdChan (Left e)
-    where parseRawMsg state rawMsg = do
-            bs <- processStream rawMsg
-            case state of
-                Normal -> do
-                    cmd <- runParse bs
-                    case cmd of
-                        Login -> return (Login, Multiline (Succ Zero))
-                        _     -> return (cmd,   Normal)
-                Multiline cs -> do
-                    str <- runWordParse rawMsg
-                    if isZero cs
-                    then return (Word str, Normal)
-                    else return (Word str, Multiline $ decr cs)
+        Right (cmd, s')      -> writeChannel cmdChan (Right cmd) >> put s'
+        Left IgnoredResponse -> return ()
+        Left e               -> writeChannel cmdChan (Left e)
+    where parseRawMsg :: ParseState -> ByteString -> Except AppError (Command, ParseState)
+          parseRawMsg state rawMsg =
+              case (unBuffer . processStream) rawMsg of 
+                  Nothing  -> throwError IgnoredResponse
+                  Just msg -> 
+                      case state of
+                          Normal -> do
+                              cmd <- runParse msg
+                              if cmd == Login
+                              then return (Login, Multiline (Succ Zero))
+                              else return (cmd, Normal)
+                          Multiline cs -> do
+                              str <- runWordParse rawMsg
+                              if isZero cs
+                              then return (Word str, Normal)
+                              else return (Word str, Multiline $ decr cs)
 
 dispatchLoop ::
     forall m.
@@ -90,7 +99,7 @@ dispatchLoop ::
     , MonadTCP m
     , MonadIO m
     ) => Socket.Handle -> TChan (Either AppError Command) -> TChan Response -> TChan Response -> m ()
-dispatchLoop handle cmdChan respChan publicChan = 
+dispatchLoop handle cmdChan respChan publicChan =
     let respLoop :: IO ()
         respLoop = forever $ do
             resp <- readChannel respChan

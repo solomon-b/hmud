@@ -26,7 +26,7 @@ maybeToEither a Nothing = Left a
 ----------------------------------
 ---- GameState Manipulation ----
 ----------------------------------
----- Pure Getter/Setters ---
+-- TODO: Replace all of this with Lens functions
     
 --- ActiveUsers ---
 

@@ -8,6 +8,7 @@ module Parser ( Command(..)
               , runMainMenuParse
               , runWordParse
               , word
+              , testParse
               )  where
 
 import Control.Applicative
@@ -40,6 +41,8 @@ data Command
     | Say Text
     | Move Direction
     | Word Text
+    | SuppressEcho
+    | UnsuppressEcho
     deriving (Eq, Show)
 
 data Direction = 
@@ -97,7 +100,6 @@ userCommands =
              , ("northwest" , Just "nw"   , Move NW)
              , ("southeast" , Just "se"   , Move SE)
              , ("southwest" , Just "sw"   , Move SW)
-
              --, ("getUser"  , Nothing    , GetUser)
              --, ("say"      , Nothing    , Say)
              --, ("echo"     , Echo       , Echo)
@@ -140,6 +142,17 @@ parserSay = token $ do
     str <- anyChar `manyTill` (char '\r' <|> char '\n')
     return $ Say (T.pack str)
 
+    
+--sendHandle' sock $ BS.pack [255,251,1]
+--("\255\\\251\\\SOH", Nothing   , SuppressEcho)
+parserSuppress :: Parser Command
+parserSuppress = token $ do
+    void $ char '3'
+    eof
+    return SuppressEcho
+             
+testParse :: ByteString -> Result Command
+testParse bs = parseByteString parserSuppress mempty bs
 
 commandParser :: Parser Command
 commandParser = choice commandParsers

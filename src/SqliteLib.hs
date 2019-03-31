@@ -117,16 +117,11 @@ formatUser (User uid name _) =
     Data.Text.concat [ "Player: "  , name, "\t"
                      , "UID: "     , (pack . show) uid]
 
-constructUser :: [Text] -> Either Text User
-constructUser xs =
-    let f [username,password] = Right $ User 0 username password
-        f _ = Left "Please enter a valid user record"
-    in f xs
-
 
 -----------------
 ---- Actions ----
 -----------------
+-- TODO: Add additional User DB CRUD actions
 
 selectUser :: Handle -> Text -> IO (Either AppError User)
 selectUser (Handle conn) user = do
@@ -143,4 +138,3 @@ insertUser :: Handle -> User -> IO User
 insertUser (Handle conn) user = do
     execute conn insertUserQuery user
     return user
-
