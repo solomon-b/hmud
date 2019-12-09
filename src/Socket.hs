@@ -3,7 +3,9 @@ module Socket ( Handle(..)
               , withHandle
               , acceptHandle
               , readHandle
-              , sendHandle) where
+              , sendHandle
+              , closeHandle
+              ) where
 
 import Control.Exception (bracket)
 import Data.ByteString (ByteString)

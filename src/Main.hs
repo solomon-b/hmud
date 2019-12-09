@@ -18,7 +18,7 @@ import Dispatch
 import Prompts
 import qualified Socket
 import qualified SqliteLib as SQL
-import Types 
+import Types
     ( Env(..)
     , GameState(..)
     , MonadDB(..)
@@ -88,21 +88,21 @@ mainLoop = forever $ do
     pubTChan' <- duplicateChannel pubTChan
     uidTvar   <- liftIO . atomically $ newTVar Nothing
     let userEnv = UserEnv conn sock' stateTVar pubTChan' cmdTChan respTChan uidTvar
-    liftIO . forkIO $ race_ (runAppM userEnv userLoop) 
+    liftIO . forkIO $ race_ (runAppM userEnv userLoop)
                             (dispatchLoop sock' cmdTChan respTChan pubTChan')
 
 runAppM :: env -> AppM env a -> IO a
 runAppM env = flip runReaderT env . unAppM
 
 socketConfig :: Socket.Config
-socketConfig = 
-    Socket.Config 
-    { Socket.cPort          = 78
+socketConfig =
+    Socket.Config
+    { Socket.cPort          = 7777
     , Socket.cSocketOptions = [(ReuseAddr, 1)]
     , Socket.cConnections   = 1
     , Socket.cAddrInfo      = Just (defaultHints {addrFlags = [AI_PASSIVE]})
     , Socket.cHostname      = Nothing
-    , Socket.cServiceName   = Just "78"
+    , Socket.cServiceName   = Just "7777"
     }
 
 dBConfig :: SQL.Config
@@ -110,7 +110,7 @@ dBConfig = SQL.Config "hmud.db"
 
 launchApp :: SQL.Config -> Socket.Config -> (SQL.Handle -> Socket.Handle -> Env) -> IO ()
 launchApp sqlC sockC env =
-    SQL.withHandle sqlC (\db -> 
+    SQL.withHandle sqlC (\db ->
         Socket.withHandle sockC (\sock ->
             runAppM (env db sock) mainLoop))
 

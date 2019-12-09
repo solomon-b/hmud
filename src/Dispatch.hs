@@ -6,6 +6,7 @@ module Dispatch where
 Message Dispatching to/from the telnet client.
 -}
 
+import Control.Concurrent (killThread)
 import Control.Concurrent.Async
 import Control.Concurrent.STM (TChan)
 import Control.Monad (forever)
@@ -32,8 +33,8 @@ import Types
     )
 
 -- Always define the naturals:
-data Peano = Zero | Succ Peano deriving Show
-data ParseState = Normal | Multiline Peano deriving Show
+data Peano = Zero | Succ Peano deriving Show             -- Temporary for debug prints in `cmdLoopInner`
+data ParseState = Normal | Multiline Peano deriving Show -- Temporary for debug prints in `cmdLoopInner`
 
 isZero :: Peano -> Bool
 isZero Zero = True
@@ -78,9 +79,9 @@ cmdLoopInner handle cmdChan = forever $ do
         Left e               -> writeChannel cmdChan (Left e)
     where parseRawMsg :: ParseState -> ByteString -> Except AppError (Command, ParseState)
           parseRawMsg state rawMsg =
-              case (unBuffer . processStream) rawMsg of 
+              case (unBuffer . processStream) rawMsg of
                   Nothing  -> throwError IgnoredResponse
-                  Just msg -> 
+                  Just msg ->
                       case state of
                           Normal -> do
                               cmd <- runParse msg
@@ -103,7 +104,12 @@ dispatchLoop handle cmdChan respChan publicChan =
     let respLoop :: IO ()
         respLoop = forever $ do
             resp <- readChannel respChan
-            sendHandle' handle . encodeUtf8 $ tshow resp
+            case resp of
+              RespExit threadId sock -> do
+                putStrLn $ "Closing thread: " ++ show threadId
+                closeHandle' sock
+                killThread threadId
+              _ -> sendHandle' handle . encodeUtf8 $ tshow resp
         cmdLoop :: IO ()
         cmdLoop = liftIO . void $ execStateT (cmdLoopInner handle cmdChan) Normal
         publicLoop :: IO ()

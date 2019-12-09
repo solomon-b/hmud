@@ -26,7 +26,7 @@ import SqliteLib (User(..))
 ---- Types ----
 ---------------
 
-data Command 
+data Command
     = GetUsers
     | GetUser Text
     | AddUser User
@@ -45,7 +45,7 @@ data Command
     | UnsuppressEcho
     deriving (Eq, Show)
 
-data Direction = 
+data Direction =
     N | S | E | W | NW | NE | SW | SE | U | D deriving (Eq, Ord)
 
 instance Show Direction where
@@ -87,7 +87,7 @@ mainMenuCommands =
              ]
 
 userCommands :: [(String, Maybe String, Command)]
-userCommands = 
+userCommands =
              [ ("exit"      , Just "quit" , Exit)
              , ("logout"    , Nothing     , Logout)
              , ("whois"     , Nothing     , Whois)
@@ -106,7 +106,7 @@ userCommands =
              ]
 
 adminCommands :: [(String, Maybe String, Command)]
-adminCommands = 
+adminCommands =
               [ ("getUsers"  , Nothing     , GetUsers)
               , ("shutdown"  , Nothing     , Shutdown)
             --, ("addUser"  , Nothing    , AddUser)
@@ -142,7 +142,6 @@ parserSay = token $ do
     str <- anyChar `manyTill` (char '\r' <|> char '\n')
     return $ Say (T.pack str)
 
-    
 --sendHandle' sock $ BS.pack [255,251,1]
 --("\255\\\251\\\SOH", Nothing   , SuppressEcho)
 parserSuppress :: Parser Command
@@ -150,7 +149,7 @@ parserSuppress = token $ do
     void $ char '3'
     eof
     return SuppressEcho
-             
+
 testParse :: ByteString -> Result Command
 testParse bs = parseByteString parserSuppress mempty bs
 
@@ -161,7 +160,7 @@ mainMenuParser :: Parser Command
 mainMenuParser = choice mainMenuParsers
 
 runParse' :: MonadError AppError m => Parser a -> ByteString -> m a
-runParse' parser bs = 
+runParse' parser bs =
     let parse = parseByteString parser mempty bs
     in case parse of
         Success cmd -> return cmd
@@ -175,7 +174,7 @@ runMainMenuParse = runParse' mainMenuParser
 
 runWordParse :: MonadError AppError m => ByteString -> m Text
 runWordParse = runParse' word
-    
+
 resultToEither :: Result a -> Either AppError a
 resultToEither (Failure _) = Left InvalidCommand
 resultToEither (Success a) = Right a

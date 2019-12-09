@@ -52,7 +52,10 @@ mainMenuPrompt = do
     resp <- readChannel cmdTchan
 
     case resp of
-        --Right Exit     -> return () -- TODO: Integrate Exit
+        Right Exit     -> do
+          socket <- asks userEnvHandle
+          threadId <- getThread
+          pure . Right $ RespExit threadId socket
         Right Login    -> runExceptT $ runReaderT loginPrompt env
         --Right Register -> return () -- TODO: Integrate Registration Func
         _        -> return $ Left InvalidCommand

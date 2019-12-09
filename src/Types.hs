@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 --{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Types where
-    
+
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
@@ -17,7 +17,7 @@ import Control.Concurrent.STM
 
 import Errors
 import Parser (Command, Direction)
-import qualified Socket 
+import qualified Socket
 import qualified SqliteLib as SQL
 import SqliteLib (User, UserId)
 import TelnetLib
@@ -69,7 +69,7 @@ instance MonadIO m => MonadThread (ExceptT e m) where
 
 class Monad m => MonadTChan m where
     createTChan      :: m (TChan a)
-    duplicateChannel :: TChan a -> m (TChan a) 
+    duplicateChannel :: TChan a -> m (TChan a)
     writeChannel     :: TChan a -> a -> m ()
     readChannel      :: TChan a -> m a
 instance MonadIO m => MonadTChan (ReaderT env m) where
@@ -97,19 +97,22 @@ class Monad m => MonadTCP m where
     acceptHandle' :: Socket.Handle -> m Socket.Handle
     readHandle'   :: Socket.Handle -> m ByteString
     sendHandle'   :: Socket.Handle -> ByteString -> m ()
-    --closeHandle'  :: Socket.Handle -> m ()
+    closeHandle'  :: Socket.Handle -> m ()
 instance MonadIO m => MonadTCP (ReaderT env m) where
-    acceptHandle' =  liftIO    . Socket.acceptHandle 
+    acceptHandle' =  liftIO    . Socket.acceptHandle
     readHandle'   =  liftIO    . Socket.readHandle
     sendHandle'   = (liftIO .) . Socket.sendHandle
+    closeHandle'  = liftIO     . Socket.closeHandle
 instance MonadIO m => MonadTCP (StateT s m) where
-    acceptHandle' =  liftIO    . Socket.acceptHandle 
+    acceptHandle' =  liftIO    . Socket.acceptHandle
     readHandle'   =  liftIO    . Socket.readHandle
     sendHandle'   = (liftIO .) . Socket.sendHandle
+    closeHandle'  = liftIO     . Socket.closeHandle
 instance MonadTCP IO where
-    acceptHandle' = Socket.acceptHandle 
+    acceptHandle' = Socket.acceptHandle
     readHandle'   = Socket.readHandle
     sendHandle'   = Socket.sendHandle
+    closeHandle'  = Socket.closeHandle
 
 class Monad m => MonadDB m where
     insertUser     :: SQL.Handle -> User -> m User
@@ -153,7 +156,7 @@ instance ( HasUserId env
         mUid <- liftIO . atomically $ readTVar tvar
         case mUid of
             Nothing -> return $ Left NotLoggedIn
-            Just uid -> 
+            Just uid ->
                 let user = M.lookup uid activePlayers
                 in return $ maybe (Left NoSuchUser) Right user
     setUser uid = do
@@ -165,12 +168,12 @@ instance ( HasUserId env
 ---- State/Env ----
 -------------------
 
-data Env = 
+data Env =
     Env { envStateTVar  :: TVar GameState
         , envWChannel   :: TChan Response
         , envConnHandle :: SQL.Handle
         , envHandle     :: Socket.Handle
-        } 
+        }
 
 data UserEnv =
     UserEnv { userEnvConnHandle :: SQL.Handle              -- Remove Soon?
@@ -184,7 +187,7 @@ data UserEnv =
             }
 
 type ActiveUsers = Map UserId User
-data GameState = 
+data GameState =
     GameState { globalActiveUsers :: ActiveUsers
               , globalWorld       :: World
               , globalPlayerMap   :: PlayerMap
@@ -195,22 +198,22 @@ data GameState =
 ---- Response Types ----
 ------------------------
 
-data Response 
+data Response
     = RespSay Username Msg
     | RespLook Text
     | RespAnnounce Text
     | Prompt Text
     | RespShutdown
-    | RespExit
+    | RespExit ThreadId Socket.Handle
     | RespAppError AppError
 
 instance Show Response where
     show (RespSay user msg)  = concat ["<", show user, "> ", show msg]
     show (RespLook text)     = show text
     show (RespAnnounce text) = show text
-    show (Prompt text)   = show text
+    show (Prompt text)       = show text
     show RespShutdown        = "RespShutdown"
-    show RespExit            = "RespExit"
+    show (RespExit thread _)   = "Closing thread: " ++ show thread
     show (RespAppError err)  = show err
 
 instance TShow Response where
@@ -219,7 +222,7 @@ instance TShow Response where
     tshow (RespAnnounce text) = T.append text "\r\n"
     tshow (Prompt text)       = text
     tshow resp                = T.pack $ show resp ++ "\r\n"
-        
+
 
 type Msg = Text
 type Username = Text
@@ -239,7 +242,7 @@ type World       = Map RoomId Room
 type PlayerMap   = Map RoomId [UserId]
 
 
-data Room = 
+data Room =
     Room { roomName        :: Name
          , roomDescription :: Description
          , roomRoomId      :: RoomId
