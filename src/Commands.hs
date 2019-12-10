@@ -19,9 +19,6 @@ import Types
   , MonadDB(..)
   , MonadGameState(..)
   , MonadPlayer(..)
-  , MonadTCP(..)
-  , MonadThread(..)
-  , MonadTChan(..)
   , RoomText(..)
   , Response(..)
   , UserEnv(..)
@@ -31,11 +28,8 @@ import World
 execCommand ::
   ( MonadReader UserEnv m
   , MonadDB m
-  , MonadTCP m
-  , MonadTChan m
   , MonadPlayer m
   , MonadGameState m
-  , MonadThread m
   , MonadError AppError m
   ) => Command -> m Response
 execCommand GetUsers = execGetUsers
@@ -51,11 +45,7 @@ execCommand Look = execShowRoom
 execCommand _ = throwError InvalidCommand
 
 
-execGetUsers ::
-  ( MonadReader UserEnv m
-  , MonadDB m
-  , MonadError AppError m
-  ) => m Response
+execGetUsers :: ( MonadReader UserEnv m , MonadDB m) => m Response
 execGetUsers = do
   conn  <- asks getConnectionHandle
   users <- selectAllUsers conn
@@ -76,10 +66,9 @@ execGetUser username = do
     Right user' -> return . RespAnnounce $ formatUser user'
 
 execAddUser ::
-    ( MonadReader UserEnv m
-    , MonadDB m
-    , MonadError AppError m
-    ) => User -> m Response
+  ( MonadReader UserEnv m
+  , MonadDB m
+  ) => User -> m Response
 execAddUser user = do
     conn <- asks getConnectionHandle
     User _ username _ <- insertUser conn user
@@ -89,7 +78,6 @@ execAddUser user = do
 execExit ::
   ( MonadReader UserEnv m
   , MonadGameState m
-  , MonadThread m
   , MonadPlayer m
   , MonadError AppError m
   ) => m Response
@@ -100,7 +88,6 @@ execExit = do
 execLogout ::
   ( MonadReader UserEnv m
   , MonadGameState m
-  , MonadThread m
   , MonadPlayer m
   , MonadError AppError m
   ) => m Response
@@ -116,16 +103,10 @@ execLogout = do
       return $ RespAnnounce "Logged Out"
 
 -- TODO: Gracefully shutdown server.
-execShutdown ::
-  ( Monad m
-  , MonadError AppError m
-  ) => m Response
+execShutdown :: (MonadError AppError m) => m Response
 execShutdown = return $ RespAnnounce "Shutting Down! Goodbye!"
 
-execWhois ::
-  ( MonadGameState m
-  , MonadError AppError m
-  ) => m Response
+execWhois :: ( MonadGameState m) => m Response
 execWhois = RespAnnounce . whois <$> readState
 
 execSay ::
@@ -141,7 +122,6 @@ execSay msg = do
 execMovePlayer ::
   ( MonadReader UserEnv m
   , MonadGameState m
-  , MonadThread m
   , MonadPlayer m
   , MonadError AppError m
   ) => Direction -> m Response
@@ -166,7 +146,6 @@ execShowRoom ::
   ( MonadReader UserEnv m
   , MonadGameState m
   , MonadPlayer m
-  , MonadThread m
   , MonadError AppError m
   ) => m Response
 execShowRoom = do

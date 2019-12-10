@@ -51,16 +51,12 @@ newtype AppM env a = App { unAppM :: ReaderT env IO a}
 
 userLoop ::
   ( MonadReader UserEnv m
-  , MonadDB m
-  , MonadGameState m
-  , MonadThread m
   , MonadUnliftIO m
   , MonadTChan m
   , MonadPlayer m
-  , MonadPrompt m
-  , MonadTCP m
   ) => m ()
 userLoop = forever $ do
+  env <- ask
   eUser     <- getUser
   pubTChan  <- asks userEnvPubTChan
   respTChan <- asks userEnvRespTchan
@@ -74,7 +70,7 @@ userLoop = forever $ do
         Left  err  -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
     -- User is not logged in:
     Left _ -> do
-      resp <- mainMenuPrompt
+      resp <- runExceptT $ runReaderT mainMenuPrompt env
       case resp of
         Right resp' -> writeChannel respTChan resp'
         Left  err   -> writeChannel respTChan (RespAppError err) >> liftIO (print err)

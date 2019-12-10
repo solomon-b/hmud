@@ -14,7 +14,6 @@ module SqliteLib
 
 import Control.Exception (Exception, bracket, throwIO)
 import Data.Text (Text, concat, pack)
-import qualified Data.Text as T
 import Data.Typeable (Typeable)
 import Database.SQLite.Simple
 import qualified Database.SQLite.Simple as SQLite
@@ -65,7 +64,7 @@ instance FromRow User where
     fromRow = User <$> field <*> field <*> field
 
 instance ToRow User where
-    toRow (User id_ username' password') = toRow (username', password')
+    toRow (User _ username' password') = toRow (username', password')
 
 instance Show User where
     show user = show (userUsername user)

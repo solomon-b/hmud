@@ -63,7 +63,6 @@ unsuppressEcho = do
 cmdLoopInner ::
   ( MonadTChan m
   , MonadTCP m
-  , MonadIO m
   , MonadState ParseState m
   ) => Socket.Handle -> TChan (Either AppError Command) -> m ()
 cmdLoopInner handle cmdChan = forever $ do
@@ -95,9 +94,9 @@ cmdLoopInner handle cmdChan = forever $ do
 
 dispatchLoop ::
   forall m.
-  ( MonadTChan m
-  , MonadTCP m
-  , MonadIO m
+  (MonadIO m
+  --( MonadTChan m
+  --, MonadTCP m
   ) => Socket.Handle -> TChan (Either AppError Command) -> TChan Response -> TChan Response -> m ()
 dispatchLoop handle cmdChan respChan publicChan =
   let

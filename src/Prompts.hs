@@ -33,16 +33,16 @@ import World
 
 mainMenuPrompt ::
   ( MonadReader UserEnv m
-  , MonadIO m
   , MonadThread m
   , MonadGameState m
   , MonadPrompt m
   , MonadTChan m
   , MonadPlayer m
   , MonadDB m
-  ) => m (Either AppError Response)
+  --, MonadTCP m
+  , MonadError AppError m
+  ) => m Response
 mainMenuPrompt = do
-  env <- ask
   respTChan <- asks userEnvRespTchan
   mapM_ (writeChannel respTChan . RespAnnounce) ["Welcome to hMud", "Options: register, login, exit"]
 
@@ -54,10 +54,10 @@ mainMenuPrompt = do
     Right Exit -> do
       socket <- asks userEnvHandle
       threadId <- getThread
-      pure . Right $ RespExit threadId socket
-    Right Login    -> runExceptT $ runReaderT loginPrompt env
-    Right Register -> runExceptT $ runReaderT registerPrompt env
-    _ -> return $ Left InvalidCommand
+      pure $ RespExit threadId socket
+    Right Login -> loginPrompt
+    Right Register -> registerPrompt
+    _ -> throwError InvalidCommand
 
 loginPrompt ::
   ( MonadReader UserEnv m
@@ -113,7 +113,6 @@ registerPrompt ::
   , MonadPlayer m
   , MonadPrompt m
   , MonadError AppError m
-  , MonadIO m
   , MonadTChan m
   ) => m Response
 registerPrompt = do
@@ -139,7 +138,7 @@ registerPrompt = do
         then
           if password1 == password2
             then do
-              insertUser handle (User 0 username password1)
+              void $ insertUser handle (User 0 username password1)
               pure $ RespRegister username
             else throwError PasswordsDontMatch
         else throwError UsernameAlreadyExists
@@ -149,8 +148,6 @@ gamePrompt ::
   forall m.
   ( MonadReader UserEnv m
   , MonadIO m
-  --, MonadPrompt m
-  , MonadGameState m
   , MonadTChan m
   ) => m (Either AppError Response)
 gamePrompt = do
@@ -162,7 +159,6 @@ gamePrompt = do
   case resp of
     Right cmd -> runExceptT $ runReaderT (execCommand cmd) env
     Left err  -> return $ Left err
-
 
 readCmd ::
   ( MonadTChan m
