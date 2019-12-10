@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-module SqliteLib 
+module SqliteLib
     ( Handle(..)
     , Config(..)
     , User(..)
@@ -40,7 +40,7 @@ closeHandle (Handle db) = close db
 
 withHandle :: Config -> (Handle -> IO a) -> IO a
 withHandle config = bracket (newHandle config) closeHandle
- 
+
 
 ---------------
 ---- Types ----
@@ -56,7 +56,7 @@ data User =
 
 type UserRow = (Null, Text, Text)
 
-data DuplicateData = DuplicateData 
+data DuplicateData = DuplicateData
     deriving (Eq, Show, Typeable)
 
 instance Exception DuplicateData
@@ -65,7 +65,7 @@ instance FromRow User where
     fromRow = User <$> field <*> field <*> field
 
 instance ToRow User where
-    toRow (User id_ username' password') = toRow (id_, username', password')
+    toRow (User id_ username' password') = toRow (username', password')
 
 instance Show User where
     show user = show (userUsername user)
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS users
 insertUserQuery :: Query
 insertUserQuery =
     "INSERT INTO users\
-    \ VALUES (?, ?, ?)"
+    \ VALUES (NULL, ?, ?)"
 
 selectAllUsersQuery :: Query
 selectAllUsersQuery =

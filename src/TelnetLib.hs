@@ -7,7 +7,6 @@ import Data.Word
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 
-
 data TelnetMessage =
       ASCII Word8      --   032 >= word8 <= 127
     | Word  Word8      --   031 >= word8 >= 128

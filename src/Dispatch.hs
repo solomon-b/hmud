@@ -6,6 +6,8 @@ module Dispatch where
 Message Dispatching to/from the telnet client.
 -}
 
+import Control.Applicative
+
 import Control.Concurrent (killThread)
 import Control.Concurrent.Async
 import Control.Concurrent.STM (TChan)
@@ -61,59 +63,59 @@ unsuppressEcho = do
     sendHandle' sock $ BS.pack [255,252,1]
 
 cmdLoopInner ::
-    ( MonadTChan m
-    , MonadTCP m
-    , MonadIO m
-    , MonadState ParseState m
-    ) => Socket.Handle -> TChan (Either AppError Command) -> m ()
+  ( MonadTChan m
+  , MonadTCP m
+  , MonadIO m
+  , MonadState ParseState m
+  ) => Socket.Handle -> TChan (Either AppError Command) -> m ()
 cmdLoopInner handle cmdChan = forever $ do
-    s      <- get
-    rawMsg <- readHandle' handle
-    liftIO $ print rawMsg
-    let cmds = runExcept $ parseRawMsg s rawMsg
-    liftIO $ putStrLn $ "Raw Message:" ++ show rawMsg
-    liftIO $ print s
-    case cmds of
-        Right (cmd, s')      -> writeChannel cmdChan (Right cmd) >> put s'
-        Left IgnoredResponse -> return ()
-        Left e               -> writeChannel cmdChan (Left e)
-    where parseRawMsg :: ParseState -> ByteString -> Except AppError (Command, ParseState)
-          parseRawMsg state rawMsg =
-              case (unBuffer . processStream) rawMsg of
-                  Nothing  -> throwError IgnoredResponse
-                  Just msg ->
-                      case state of
-                          Normal -> do
-                              cmd <- runParse msg
-                              if cmd == Login
-                              then return (Login, Multiline (Succ Zero))
-                              else return (cmd, Normal)
-                          Multiline cs -> do
-                              str <- runWordParse rawMsg
-                              if isZero cs
-                              then return (Word str, Normal)
-                              else return (Word str, Multiline $ decr cs)
+  s      <- get
+  rawMsg <- readHandle' handle
+  let cmds = runExcept $ parseRawMsg s rawMsg
+  case cmds of
+    Right (cmd, s')      -> writeChannel cmdChan (Right cmd) >> put s'
+    Left IgnoredResponse -> return ()
+    Left e               -> writeChannel cmdChan (Left e)
+  where
+    parseRawMsg :: ParseState -> ByteString -> Except AppError (Command, ParseState)
+    parseRawMsg state rawMsg =
+      case (unBuffer . processStream) rawMsg of
+        Nothing  -> throwError IgnoredResponse
+        Just msg ->
+          case state of
+            Normal -> do
+              cmd <- runParse msg
+              case cmd of
+                Login -> return (Login, Multiline (Succ Zero))
+                Register -> return (Register, Multiline (Succ $ Succ Zero))
+                _ ->  return (cmd, Normal)
+            Multiline cs -> do
+              str <- runWordParse rawMsg
+              if isZero cs
+              then return (Word str, Normal)
+              else return (Word str, Multiline $ decr cs)
 
 dispatchLoop ::
-    forall m.
-    ( MonadTChan m
-    , MonadTCP m
-    , MonadIO m
-    ) => Socket.Handle -> TChan (Either AppError Command) -> TChan Response -> TChan Response -> m ()
+  forall m.
+  ( MonadTChan m
+  , MonadTCP m
+  , MonadIO m
+  ) => Socket.Handle -> TChan (Either AppError Command) -> TChan Response -> TChan Response -> m ()
 dispatchLoop handle cmdChan respChan publicChan =
-    let respLoop :: IO ()
-        respLoop = forever $ do
-            resp <- readChannel respChan
-            case resp of
-              RespExit threadId sock -> do
-                putStrLn $ "Closing thread: " ++ show threadId
-                closeHandle' sock
-                killThread threadId
-              _ -> sendHandle' handle . encodeUtf8 $ tshow resp
-        cmdLoop :: IO ()
-        cmdLoop = liftIO . void $ execStateT (cmdLoopInner handle cmdChan) Normal
-        publicLoop :: IO ()
-        publicLoop = forever $ do
-            public  <- readChannel publicChan
-            sendHandle' handle . encodeUtf8 $ tshow public
-    in liftIO $ race_ respLoop (race_ cmdLoop publicLoop)
+  let
+    respLoop :: IO ()
+    respLoop = forever $ do
+      resp <- readChannel respChan
+      case resp of
+        RespExit threadId sock -> do
+          putStrLn $ "Closing thread: " ++ show threadId
+          closeHandle' sock
+          killThread threadId
+        _ -> sendHandle' handle . encodeUtf8 $ tshow resp
+    cmdLoop :: IO ()
+    cmdLoop = liftIO . void $ execStateT (cmdLoopInner handle cmdChan) Normal
+    publicLoop :: IO ()
+    publicLoop = forever $ do
+      public  <- readChannel publicChan
+      sendHandle' handle . encodeUtf8 $ tshow public
+  in liftIO $ race_ respLoop (race_ cmdLoop publicLoop)

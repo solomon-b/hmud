@@ -5,6 +5,7 @@ module Parser ( Command(..)
               , mainMenuParser
               , resultToEither
               , runParse
+              , runParseRaw
               , runMainMenuParse
               , runWordParse
               , word
@@ -34,6 +35,7 @@ data Command
     | Exit
     | Shutdown
     | Register
+    | Raw Text
     | Look
     | Login
     | Logout
@@ -150,6 +152,9 @@ parserSuppress = token $ do
     eof
     return SuppressEcho
 
+parserRaw :: Parser Command
+parserRaw = Raw <$> word
+
 testParse :: ByteString -> Result Command
 testParse bs = parseByteString parserSuppress mempty bs
 
@@ -168,6 +173,9 @@ runParse' parser bs =
 
 runParse :: MonadError AppError m => ByteString -> m Command
 runParse = runParse' (try commandParser <|> try mainMenuParser)
+
+runParseRaw :: MonadError AppError m => ByteString -> m Command
+runParseRaw = runParse' parserRaw
 
 runMainMenuParse :: MonadError AppError m => ByteString -> m Command
 runMainMenuParse = runParse' mainMenuParser

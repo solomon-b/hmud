@@ -19,104 +19,104 @@ import Prompts
 import qualified Socket
 import qualified SqliteLib as SQL
 import Types
-    ( Env(..)
-    , GameState(..)
-    , MonadDB(..)
-    , MonadTChan(..)
-    , MonadGameState(..)
-    , MonadTCP(..)
-    , MonadPlayer(..)
-    , MonadPrompt(..)
-    , MonadThread(..)
-    , UserEnv(..)
-    , Response(..)
-    )
+  ( Env(..)
+  , GameState(..)
+  , MonadDB(..)
+  , MonadTChan(..)
+  , MonadGameState(..)
+  , MonadTCP(..)
+  , MonadPlayer(..)
+  , MonadPrompt(..)
+  , MonadThread(..)
+  , UserEnv(..)
+  , Response(..)
+  )
 import World
 
 newtype AppM env a = App { unAppM :: ReaderT env IO a}
-    deriving ( Functor
-             , Applicative
-             , Monad
-             , MonadIO
-             , MonadUnliftIO
-             , MonadDB
-             , MonadReader env
-             , MonadGameState
-             , MonadPlayer
-             , MonadPrompt
-             , MonadTChan
-             , MonadTCP
-             , MonadThread
-             )
+  deriving ( Functor
+           , Applicative
+           , Monad
+           , MonadIO
+           , MonadUnliftIO
+           , MonadDB
+           , MonadReader env
+           , MonadGameState
+           , MonadPlayer
+           , MonadPrompt
+           , MonadTChan
+           , MonadTCP
+           , MonadThread
+           )
 
 userLoop ::
-    ( MonadReader UserEnv m
-    , MonadDB m
-    , MonadGameState m
-    , MonadThread m
-    , MonadUnliftIO m
-    , MonadTChan m
-    , MonadPlayer m
-    , MonadPrompt m
-    , MonadTCP m
-    ) => m ()
+  ( MonadReader UserEnv m
+  , MonadDB m
+  , MonadGameState m
+  , MonadThread m
+  , MonadUnliftIO m
+  , MonadTChan m
+  , MonadPlayer m
+  , MonadPrompt m
+  , MonadTCP m
+  ) => m ()
 userLoop = forever $ do
-    eUser     <- getUser
-    pubTChan  <- asks userEnvPubTChan
-    respTChan <- asks userEnvRespTchan
-    case eUser of
-        -- User is logged in:
-        Right _ -> do
-            response <- gamePrompt
-            case response of
-                Right (resp@(RespSay _ _)) -> writeChannel pubTChan resp
-                Right resp -> writeChannel respTChan resp
-                Left  err  -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
-        -- User is not logged in:
-        Left _ -> do
-            resp <- mainMenuPrompt
-            case resp of
-                Right resp' -> writeChannel respTChan resp'
-                Left  err   -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
+  eUser     <- getUser
+  pubTChan  <- asks userEnvPubTChan
+  respTChan <- asks userEnvRespTchan
+  case eUser of
+    -- User is logged in:
+    Right _ -> do
+      response <- gamePrompt
+      case response of
+        Right (resp@(RespSay _ _)) -> writeChannel pubTChan resp
+        Right resp -> writeChannel respTChan resp
+        Left  err  -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
+    -- User is not logged in:
+    Left _ -> do
+      resp <- mainMenuPrompt
+      case resp of
+        Right resp' -> writeChannel respTChan resp'
+        Left  err   -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
 
 mainLoop :: AppM Env ()
 mainLoop = forever $ do
-    (Env stateTVar pubTChan conn sock) <- ask
-    sock'     <- acceptHandle' sock
-    cmdTChan  <- createTChan
-    respTChan <- createTChan
-    pubTChan' <- duplicateChannel pubTChan
-    uidTvar   <- liftIO . atomically $ newTVar Nothing
-    let userEnv = UserEnv conn sock' stateTVar pubTChan' cmdTChan respTChan uidTvar
-    liftIO . forkIO $ race_ (runAppM userEnv userLoop)
-                            (dispatchLoop sock' cmdTChan respTChan pubTChan')
+  (Env stateTVar pubTChan conn sock) <- ask
+  sock'     <- acceptHandle' sock
+  cmdTChan  <- createTChan
+  respTChan <- createTChan
+  pubTChan' <- duplicateChannel pubTChan
+  uidTvar   <- liftIO . atomically $ newTVar Nothing
+  let userEnv = UserEnv conn sock' stateTVar pubTChan' cmdTChan respTChan uidTvar
+  liftIO . forkIO $ race_ (runAppM userEnv userLoop)
+                          (dispatchLoop sock' cmdTChan respTChan pubTChan')
 
 runAppM :: env -> AppM env a -> IO a
 runAppM env = flip runReaderT env . unAppM
 
 socketConfig :: Socket.Config
 socketConfig =
-    Socket.Config
-    { Socket.cPort          = 7777
-    , Socket.cSocketOptions = [(ReuseAddr, 1)]
-    , Socket.cConnections   = 1
-    , Socket.cAddrInfo      = Just (defaultHints {addrFlags = [AI_PASSIVE]})
-    , Socket.cHostname      = Nothing
-    , Socket.cServiceName   = Just "7777"
-    }
+  Socket.Config
+  { Socket.cPort          = 7777
+  , Socket.cSocketOptions = [(ReuseAddr, 1)]
+  , Socket.cConnections   = 1
+  , Socket.cAddrInfo      = Just (defaultHints {addrFlags = [AI_PASSIVE]})
+  , Socket.cHostname      = Nothing
+  , Socket.cServiceName   = Just "7777"
+  }
 
 dBConfig :: SQL.Config
 dBConfig = SQL.Config "hmud.db"
 
 launchApp :: SQL.Config -> Socket.Config -> (SQL.Handle -> Socket.Handle -> Env) -> IO ()
 launchApp sqlC sockC env =
-    SQL.withHandle sqlC (\db ->
-        Socket.withHandle sockC (\sock ->
-            runAppM (env db sock) mainLoop))
+  SQL.withHandle sqlC (\db ->
+    Socket.withHandle sockC (\sock ->
+      runAppM (env db sock) mainLoop))
 
 main :: IO ()
 main = withSocketsDo $ do
-    state    <- atomically $ newTVar (GameState M.empty world playerMap)
-    wChannel <- newTChanIO
-    let env = Env state wChannel --users
-    launchApp dBConfig socketConfig env
+  state    <- atomically $ newTVar (GameState M.empty world playerMap)
+  wChannel <- newTChanIO
+  let env = Env state wChannel --users
+  launchApp dBConfig socketConfig env
