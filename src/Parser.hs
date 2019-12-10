@@ -141,7 +141,7 @@ parserAddUser = token $ do
 parserSay :: Parser Command
 parserSay = token $ do
     void $ symbol "say"
-    str <- anyChar `manyTill` (char '\r' <|> char '\n')
+    str <- anyChar `manyTill` eof --(char '\r' <|> char '\n')
     return $ Say (T.pack str)
 
 --sendHandle' sock $ BS.pack [255,251,1]

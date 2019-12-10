@@ -100,7 +100,7 @@ socketConfig =
   { Socket.cPort          = 7777
   , Socket.cSocketOptions = [(ReuseAddr, 1)]
   , Socket.cConnections   = 1
-  , Socket.cAddrInfo      = Just (defaultHints {addrFlags = [AI_PASSIVE]})
+  , Socket.cAddrInfo      = Just (defaultHints {addrFlags = [AI_PASSIVE], addrAddress=SockAddrUnix "0.0.0.0"})
   , Socket.cHostname      = Nothing
   , Socket.cServiceName   = Just "7777"
   }
