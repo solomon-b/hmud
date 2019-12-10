@@ -6,7 +6,6 @@ module Dispatch where
 Message Dispatching to/from the telnet client.
 -}
 
-import Control.Applicative
 
 import Control.Concurrent (killThread)
 import Control.Concurrent.Async
@@ -18,7 +17,6 @@ import Control.Monad.Reader
 import Control.Monad.State (MonadState, execStateT, put, get)
 import Data.ByteString (ByteString)
 import Data.ByteString as BS (pack)
-import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 
 import Errors

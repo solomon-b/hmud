@@ -7,7 +7,6 @@ import Control.Concurrent.STM
 import Control.Monad.Except
 import Control.Monad.Reader
 import qualified Data.Map.Strict as M
-import Data.Text (Text)
 import qualified Data.Text as T
 
 import Account
@@ -107,28 +106,6 @@ verifyLogin username password users =
       checkPassword password' user
     _ -> Left InvalidCommand
 
-usernameRegPrompt ::
-  ( MonadReader UserEnv m
-  , MonadDB m
-  , MonadPrompt m
-  ) => m (Either AppError Text)
-usernameRegPrompt = do
-  conn <- asks getConnectionHandle
-  users <- selectAllUsers conn
-  usernameBS <- prompt "username: "
-  return $ validateUsername users usernameBS
-
-passwordRegPrompt ::
-  ( MonadReader UserEnv m
-  , MonadPrompt m
-  ) => m (Either AppError Text)
-passwordRegPrompt = do
-  suppressEcho
-  password  <- prompt "password: "
-  password' <- prompt "repeat password: "
-  unsuppressEcho
-  return $ validatePassword password password'
-
 registerPrompt ::
   ( MonadReader UserEnv m
   , MonadDB m
@@ -142,8 +119,6 @@ registerPrompt ::
 registerPrompt = do
   handle <- asks getConnectionHandle
   users <- selectAllUsers handle
-  --username <- prompt "username: " >>= usernameIsAvailable users
-
   respTChan   <- asks userEnvRespTchan
   cmdTchan    <- asks userEnvCmdTChan
 
@@ -169,18 +144,6 @@ registerPrompt = do
             else throwError PasswordsDontMatch
         else throwError UsernameAlreadyExists
     _ -> registerPrompt
-
-  --case  username of
-  --  -- TODO: Handle bad username/password notification
-  --  Left err -> liftIO (print err) >> registerPrompt
-  --  Right username' -> pure $ RespRegister username' -- do
-  --        passwordM <- passwordRegPrompt
-  --        case passwordM of
-  --            -- TODO: Only require the user to re-enter password
-  --            Left _     -> registerPrompt
-  --            Right pass -> do
-  --              insertUser conn (User 0 username' pass)
-  --              pure $ RespRegister username'
 
 gamePrompt ::
   forall m.
