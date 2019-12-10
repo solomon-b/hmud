@@ -166,5 +166,5 @@ readCmd ::
 readCmd tchan = do
   resp <- readChannel tchan
   case resp of
-    Left err -> throwError err
     Right cmd -> return cmd
+    Left err -> throwError err

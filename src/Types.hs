@@ -206,6 +206,7 @@ data Response
   | RespRegister Username
   | RespShutdown
   | RespExit ThreadId Socket.Handle
+  | RespLogout
   | RespAppError AppError
 
 instance Show Response where
@@ -226,9 +227,10 @@ availableCommands = intersperse "\r\n" commands
     commands =
       [ "Available Commands:"
       , "say <text> <-- Global Chat"
-      , "exit <-- Logout"
-      , "look <-- examine things"
-      , "north,south,east,west <-- movement"
+      , "look <-- Examine things"
+      , "north,south,east,west,up,down <-- Movement"
+      , "exit <-- Disconnect from server"
+      , "logout <-- Logout to main menu"
       ]
 
 instance TShow Response where

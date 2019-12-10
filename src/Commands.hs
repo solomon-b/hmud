@@ -19,6 +19,7 @@ import Types
   , MonadDB(..)
   , MonadGameState(..)
   , MonadPlayer(..)
+  , MonadThread(..)
   , RoomText(..)
   , Response(..)
   , UserEnv(..)
@@ -31,6 +32,7 @@ execCommand ::
   , MonadPlayer m
   , MonadGameState m
   , MonadError AppError m
+  , MonadThread m
   ) => Command -> m Response
 execCommand GetUsers = execGetUsers
 execCommand (GetUser username) = execGetUser username
@@ -80,13 +82,12 @@ execAddUser user = do
 -- TODO: Logout and disconnect client.
 execExit ::
   ( MonadReader UserEnv m
-  , MonadGameState m
-  , MonadPlayer m
-  , MonadError AppError m
+  , MonadThread m
   ) => m Response
 execExit = do
-  void execLogout
-  return $ RespAnnounce "Goodbye!"
+  socket <- asks userEnvHandle
+  threadId <- getThread
+  pure $ RespExit threadId socket
 
 execLogout ::
   ( MonadReader UserEnv m

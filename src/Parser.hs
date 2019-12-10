@@ -32,13 +32,13 @@ data Command
     | GetUser Text
     | AddUser User
     | Echo Text
-    | Exit
     | Shutdown
     | Register
     | Raw Text
     | Look
     | Login
     | Logout
+    | Exit
     | Help
     | Whois
     | Say Text
