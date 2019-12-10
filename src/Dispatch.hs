@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Dispatch where
@@ -106,6 +107,7 @@ dispatchLoop handle cmdChan respChan publicChan =
       case resp of
         RespExit threadId sock -> do
           putStrLn $ "Closing thread: " ++ show threadId
+          writeChannel respChan $ RespAnnounce "Goodbye!"
           closeHandle' sock
           killThread threadId
         _ -> sendHandle' handle . encodeUtf8 $ tshow resp

@@ -39,6 +39,7 @@ data Command
     | Look
     | Login
     | Logout
+    | Help
     | Whois
     | Say Text
     | Move Direction
@@ -90,7 +91,8 @@ mainMenuCommands =
 
 userCommands :: [(String, Maybe String, Command)]
 userCommands =
-             [ ("exit"      , Just "quit" , Exit)
+             [ ("help"      , Just "h"    , Help)
+             , ("exit"      , Just "quit" , Exit)
              , ("logout"    , Nothing     , Logout)
              , ("whois"     , Nothing     , Whois)
              , ("look"      , Just "l"    , Look)

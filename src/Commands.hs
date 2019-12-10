@@ -42,10 +42,13 @@ execCommand Whois = execWhois
 execCommand (Say msg) = execSay msg
 execCommand (Move dir) = execMovePlayer dir
 execCommand Look = execShowRoom
+execCommand Help = execHelp
 execCommand _ = throwError InvalidCommand
 
+execHelp :: Monad m => m Response
+execHelp = pure RespHelp
 
-execGetUsers :: ( MonadReader UserEnv m , MonadDB m) => m Response
+execGetUsers :: (MonadReader UserEnv m , MonadDB m) => m Response
 execGetUsers = do
   conn  <- asks getConnectionHandle
   users <- selectAllUsers conn

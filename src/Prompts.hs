@@ -39,7 +39,6 @@ mainMenuPrompt ::
   , MonadTChan m
   , MonadPlayer m
   , MonadDB m
-  --, MonadTCP m
   , MonadError AppError m
   ) => m Response
 mainMenuPrompt = do

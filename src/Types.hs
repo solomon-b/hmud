@@ -1,19 +1,20 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
---{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Types where
 
+import Control.Concurrent (ThreadId, myThreadId)
+import Control.Concurrent.STM
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
+
+import Data.List (intersperse)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T (concat, pack, append)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
-import Control.Concurrent (ThreadId, myThreadId)
-import Control.Concurrent.STM
 
 import Errors
 import Parser (Command, Direction)
@@ -198,6 +199,7 @@ data GameState =
 
 data Response
   = RespSay Username Msg
+  | RespHelp
   | RespLook Text
   | RespAnnounce Text
   | Prompt Text
@@ -215,12 +217,26 @@ instance Show Response where
   show RespShutdown        = "RespShutdown"
   show (RespExit thread _) = "Closing thread: " ++ show thread
   show (RespAppError err)  = show err
+  show (RespHelp)          = foldMap show availableCommands
+
+availableCommands :: [Text]
+availableCommands = intersperse "\r\n" commands
+  where
+    commands :: [Text]
+    commands =
+      [ "Available Commands:"
+      , "say <text> <-- Global Chat"
+      , "exit <-- Logout"
+      , "look <-- examine things"
+      , "north,south,east,west <-- movement"
+      ]
 
 instance TShow Response where
   tshow (RespSay uname msg) = T.concat ["<", uname, "> ", msg, "\r\n"]
   tshow (RespLook text)     = T.append text "\r\n"
   tshow (RespAnnounce text) = T.append text "\r\n"
   tshow (Prompt text)       = text
+  tshow (RespHelp)          = T.append (T.concat availableCommands) "\r\n"
   tshow resp                = T.pack $ show resp ++ "\r\n"
 
 
