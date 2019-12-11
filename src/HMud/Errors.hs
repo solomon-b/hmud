@@ -1,5 +1,6 @@
 module HMud.Errors where
 
+import Data.Text (Text)
 import Control.Exception
 
 --TODO: Identify use cases for all errors and how they should be handled.
@@ -16,20 +17,23 @@ data AppError
     | PasswordsDontMatch -- Auth
     | UserNotInPlayerMap -- System?
     | InvalidCommand     -- In Game
+    | NoSuchObject Text
     | IgnoredResponse    -- Response codes passed back by the telnet client I don't care about.
     | UsernameAlreadyExists
 
 instance Show AppError where
-    show NoSuchUser         = "There is no such user."
-    show NoSuchRoom         = "There is no room in that direction."
-    show NotLoggedIn        = "You are not logged in."
-    show AlreadyLoggedIn    = "You are already logged in."
-    show UserNotFound       = "No user found in database."
-    show InvalidPassword    = "Invalid Password."
-    show PasswordsDontMatch = "Your password entries don not match."
-    show UserNotInPlayerMap = "User not found in game."
-    show InvalidCommand     = "Please enter a valid command."
-    show IgnoredResponse    = "Telnet Client response we don't care about."
-    show UsernameAlreadyExists = "Username is taken, try another one."
+  show = \case
+    NoSuchUser            -> "There is no such user."
+    NoSuchRoom            -> "There is no room in that direction."
+    NotLoggedIn           -> "You are not logged in."
+    AlreadyLoggedIn       -> "You are already logged in."
+    UserNotFound          -> "No user found in database."
+    InvalidPassword       -> "Invalid Password."
+    PasswordsDontMatch    -> "Your password entries don not match."
+    UserNotInPlayerMap    -> "User not found in game."
+    InvalidCommand        -> "Please enter a valid command."
+    IgnoredResponse       -> "Telnet Client response we don't care about."
+    UsernameAlreadyExists -> "Username is taken, try another one."
+    NoSuchObject name     -> "There is no " ++ show name ++ " here."
 
 instance Exception AppError

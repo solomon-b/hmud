@@ -1,3 +1,58 @@
+# Sketch of an updated state
+```
+newtype ItemTypeId = ItemTypeId Integer
+newtype ItemId = ItemId Integer
+newtype InventoryId = InventoryId Integer
+newtype RoomId = RoomId Integer
+newtype PlayerId = PlayerId Integer
+
+type TwoHanded = Bool
+
+data EquipmentType = Head | Torso | Legs | Feet | Hand TwoHanded | Arms | Finger
+
+data ItemType =
+  { _name              :: Text
+  , _itemTypeId        :: ItemTypeId
+  , _containerCapacity :: Nat
+  , _weight            :: Nat
+  , _isEquippable      :: Bool
+  , _equipmentType     :: EquipmentType
+  , _movable           :: Bool
+  , _description       :: Text
+  }
+
+data Item = 
+  { _itemId       :: ItemId
+  , _itemTypeId   :: ItemTypeId
+  , _inventoryId  :: Maybe InventoryId
+  }
+
+data Room =
+  { _name        :: RoomId
+  , _roomId      :: Integer
+  , _description :: Text
+  , _neighbors   :: [(Dir, RoomId)]
+  , _inventoryId :: InventoryId
+  }
+
+data Player =
+  { _name        :: Text
+  , _playerId    :: playerId
+  , _description :: Text
+  , _inventoryId :: InventoryId
+  }
+
+data GlobalState =
+  { _players       :: Map PlayerId Player
+  , _worldMap      :: Map RoomId Room
+  , _playerMap     :: Map RoomId [UserId]
+  , _InventoryMap  :: Map InventoryId [ItemId]
+  , _ItemTypeMap :: Map ItemTypeId ItemType
+  , _itemMap     :: Map ItemId Item
+  }
+```
+
+
 # Env
 ```
  - envConn      :: Connection

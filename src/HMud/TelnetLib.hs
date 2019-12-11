@@ -75,7 +75,7 @@ addWordToBuffer w bs = Buffer $ (flip BS.snoc w) <$> unBuffer bs
 eraseCharFromBuffer :: Buffer -> Buffer
 eraseCharFromBuffer (Buffer (Just text)) =
     case BS.unsnoc text of
-        Just (buffer', _) 
+        Just (buffer', _)
             | buffer' == BS.empty -> Buffer Nothing
             | otherwise -> Buffer $ Just buffer'
         Nothing         -> mempty

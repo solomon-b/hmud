@@ -15,7 +15,9 @@ import HMud.Types
   ( ActiveUsers
   , GameState(..)
   , PlayerMap
+  , ItemMap
   , RoomId
+  , ItemId
   )
 
 
@@ -46,8 +48,8 @@ whois state =
 --- PlayerMap ---
 
 replacePlayerMap :: GameState -> PlayerMap -> GameState
-replacePlayerMap (GameState activeUsers' world _) =
-  GameState activeUsers' world
+replacePlayerMap (GameState activeUsers' world _ items) =
+  flip (GameState activeUsers' world) items
 
 removePlayer :: UserId -> RoomId -> PlayerMap -> PlayerMap
 removePlayer uid =
@@ -83,3 +85,8 @@ findAndSwapPlayer uid rid playerMap' =
   case findPlayer uid playerMap' of
     Right (rid', _) -> swapPlayer uid rid' rid playerMap'
     _ -> addPlayer uid rid playerMap'
+
+--- ItemMap ---
+
+findItemByName :: ItemMap -> Text -> Maybe ItemId
+findItemByName = undefined

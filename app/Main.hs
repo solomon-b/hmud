@@ -1,5 +1,6 @@
 module Main where
 
+import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM hiding (stateTVar)
@@ -33,6 +34,7 @@ import HMud.World
 newtype AppM env a = App { unAppM :: ReaderT env IO a}
   deriving ( Functor
            , Applicative
+           , Alternative
            , Monad
            , MonadIO
            , MonadUnliftIO
@@ -109,7 +111,7 @@ launchApp sqlC sockC env =
 
 main :: IO ()
 main = withSocketsDo $ do
-  state    <- atomically $ newTVar (GameState M.empty world playerMap)
+  state    <- atomically $ newTVar (GameState M.empty world playerMap M.empty)
   wChannel <- newTChanIO
   let env = Env state wChannel --users
   launchApp dBConfig socketConfig env

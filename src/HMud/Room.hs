@@ -54,7 +54,7 @@ getUserLocation = do
           return . Right $ world M.! rid
 
 getUsersInRoom :: UserId -> RoomId -> GameState -> Either AppError [User]
-getUsersInRoom uid rid (GameState activeUsers' _ playerMap') = do
+getUsersInRoom uid rid (GameState activeUsers' _ playerMap' _) = do
   uids <- maybeToEither NoSuchRoom $ playerMap' M.!? rid
   let mapFunc :: UserId -> User
       mapFunc uid' = activeUsers' M.! uid'

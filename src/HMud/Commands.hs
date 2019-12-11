@@ -16,6 +16,7 @@ import HMud.Types
   , HasConnectionHandle(..)
   , MonadDB(..)
   , MonadGameState(..)
+  , MonadObjectLookup(..)
   , MonadPlayer(..)
   , MonadThread(..)
   , RoomText(..)
@@ -94,14 +95,14 @@ execLogout ::
   , MonadError AppError m
   ) => m Response
 execLogout = do
-  (GameState activePlayers _ playerMap') <- readState
+  (GameState activePlayers _ playerMap' itemMap) <- readState
   eUser <- getUser
   case eUser of
     Left err -> throwError err
     Right user -> do
       let userId = userUserId user
           activePlayers' = removeUser userId activePlayers
-      setState $ GameState activePlayers' world playerMap'
+      setState $ GameState activePlayers' world playerMap' itemMap
       return $ RespAnnounce "Logged Out"
 
 -- TODO: Gracefully shutdown server.
@@ -147,17 +148,25 @@ execMovePlayer dir = do
 execLook ::
   ( MonadReader UserEnv m
   , MonadGameState m
+  --, MonadObjectLookup m
   , MonadPlayer m
   , MonadError AppError m
   ) => Target -> m Response
-execLook target = do
-  globalState' <- readState
-  eRoom        <- getUserLocation
-  eUser        <- getUser
-  let res = do
-       uid <- userUserId <$> eUser
-       room <- eRoom
-       showRoom' uid room globalState'
-  case res of
-    Left  err      -> throwError err
-    Right roomText -> return . RespAnnounce $ getRoomText roomText
+execLook = \case
+  --Object name -> do
+  --  object <- lookupObjectByName name
+  --  room <- getUserlocation
+  --  guard $ object `isIn` room
+  --  pure . RespAnnounce $ look object
+  --Dir dir -> undefined
+  _ -> do
+    globalState' <- readState
+    eRoom        <- getUserLocation
+    eUser        <- getUser
+    let res = do
+         uid <- userUserId <$> eUser
+         room <- eRoom
+         showRoom' uid room globalState'
+    case res of
+      Left  err      -> throwError err
+      Right roomText -> return . RespAnnounce $ getRoomText roomText

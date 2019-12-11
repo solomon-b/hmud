@@ -148,7 +148,7 @@ class Monad m => MonadPlayer m where
   setUser :: UserId -> m ()
 instance ( HasUserId env , HasState env , MonadIO m) => MonadPlayer (ReaderT env m) where
   getUser = do
-    (GameState activePlayers _ _) <- readState
+    (GameState activePlayers _ _ _) <- readState
     tvar <- asks getUserId
     mUid <- liftIO . atomically $ readTVar tvar
     case mUid of
@@ -160,6 +160,8 @@ instance ( HasUserId env , HasState env , MonadIO m) => MonadPlayer (ReaderT env
     tvar <- asks getUserId
     liftIO . atomically $ writeTVar tvar (Just uid)
 
+class MonadGameState m => MonadObjectLookup m where
+  lookupObjectByName :: Text -> m Item
 
 -------------------
 ---- State/Env ----
@@ -167,10 +169,10 @@ instance ( HasUserId env , HasState env , MonadIO m) => MonadPlayer (ReaderT env
 
 data Env =
   Env { envStateTVar  :: TVar GameState
-    , envWChannel   :: TChan Response
-    , envConnHandle :: SQL.Handle
-    , envHandle     :: Socket.Handle
-    }
+      , envWChannel   :: TChan Response
+      , envConnHandle :: SQL.Handle
+      , envHandle     :: Socket.Handle
+      }
 
 data UserEnv =
   UserEnv { userEnvConnHandle :: SQL.Handle              -- Remove Soon?
@@ -188,6 +190,7 @@ data GameState =
   GameState { globalActiveUsers :: ActiveUsers
             , globalWorld       :: World
             , globalPlayerMap   :: PlayerMap
+            , globalItemMap     :: ItemMap
             } deriving Show
 
 
@@ -254,8 +257,10 @@ type Name = Text
 
 type Description = Text
 type RoomId      = Integer
+type ItemId      = Integer
 type World       = Map RoomId Room
 type PlayerMap   = Map RoomId [UserId]
+type ItemMap     = Map RoomId [ItemId]
 
 data Room =
   Room { roomName        :: Name

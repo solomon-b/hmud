@@ -66,6 +66,7 @@ loginPrompt ::
 loginPrompt = do
   activeUsers <- globalActiveUsers <$> readState
   playerMap'  <- globalPlayerMap <$> readState
+  itemMap     <- globalItemMap <$> readState
   respTChan   <- asks userEnvRespTchan
   cmdTchan    <- asks userEnvCmdTChan
   handle      <- asks getConnectionHandle
@@ -89,7 +90,7 @@ loginPrompt = do
             activeUsersMap = M.insert (userUserId user) user activeUsers
             playerMap'' = addPlayer uid 1 playerMap'
         setUser uid
-        setState $ GameState activeUsersMap world playerMap''
+        setState $ GameState activeUsersMap world playerMap'' itemMap
         return . RespAnnounce $ userUsername user `T.append` " Logged In"
 
 -- TODO: Replace with Lens
