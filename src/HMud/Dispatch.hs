@@ -1,7 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-module Dispatch where
+module HMud.Dispatch where
 
 {-
 Message Dispatching to/from the telnet client.
@@ -20,11 +17,11 @@ import Data.ByteString (ByteString)
 import Data.ByteString as BS (pack)
 import Data.Text.Encoding (encodeUtf8)
 
-import Errors
-import Parser
-import Socket
-import TelnetLib
-import Types
+import HMud.Errors
+import HMud.Parser.Commands
+import HMud.Socket as Socket
+import HMud.TelnetLib
+import HMud.Types
     ( UserEnv(..)
     , HasSocketHandle(..)
     , MonadTChan(..)

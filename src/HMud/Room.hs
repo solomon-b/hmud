@@ -1,6 +1,4 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
-module Room where
+module HMud.Room where
 -- This module will be pure functions related to Room manipulation and rendering
 
 
@@ -10,14 +8,14 @@ import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import Errors
-import State
-import SqliteLib
+import HMud.Errors
+import HMud.State
+import HMud.SqliteLib
   ( User(..)
   , UserId
   )
-import Parser (Direction(..))
-import Types
+import HMud.Parser.Commands (Direction(..))
+import HMud.Types
   ( GameState(..)
   , MonadGameState(..)
   , MonadPlayer(..)
@@ -26,7 +24,7 @@ import Types
   , RoomText(..)
   , UserEnv(..)
   )
-import World
+import HMud.World
 
 
 (+++) :: Text -> Text -> Text

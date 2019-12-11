@@ -1,4 +1,4 @@
-module Socket ( Handle(..)
+module HMud.Socket ( Handle(..)
               , Config(..)
               , withHandle
               , acceptHandle

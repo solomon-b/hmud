@@ -1,6 +1,4 @@
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE OverloadedStrings #-}
-module Types where
+module HMud.Types where
 
 import Control.Concurrent (ThreadId, myThreadId)
 import Control.Concurrent.STM
@@ -16,12 +14,12 @@ import qualified Data.Text as T (concat, pack, append)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 
-import Errors
-import Parser (Command, Direction)
-import qualified Socket
-import qualified SqliteLib as SQL
-import SqliteLib (User, UserId)
-import TelnetLib
+import HMud.Errors
+import HMud.Parser.Commands (Command, Direction)
+import qualified HMud.Socket as Socket
+import qualified HMud.SqliteLib as SQL
+import HMud.SqliteLib (User(..), UserId)
+import HMud.TelnetLib
 
 ---------------------
 ---- MTL Classes ----
@@ -259,7 +257,6 @@ type RoomId      = Integer
 type World       = Map RoomId Room
 type PlayerMap   = Map RoomId [UserId]
 
-
 data Room =
   Room { roomName        :: Name
        , roomDescription :: Description
@@ -276,3 +273,30 @@ instance TShow Room where
   tshow = T.pack . show
 
 newtype RoomText = RoomText { getRoomText :: Text } deriving Show
+
+----------------
+--- Lookable ---
+----------------
+
+class Lookable a where
+  look :: a -> Text
+
+instance Lookable Room where
+  look = tshow
+
+instance Lookable User where
+  look user = userUsername user
+
+instance Lookable Item where
+  look = T.pack . show
+
+-------------
+--- Items ---
+-------------
+
+data Item
+  = Clothing
+  | Food
+  | Weapon
+  | Misc
+  deriving Show

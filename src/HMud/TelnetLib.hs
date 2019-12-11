@@ -1,6 +1,4 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleContexts #-}
-module TelnetLib (processStream, Buffer(..)) where
+module HMud.TelnetLib (processStream, Buffer(..)) where
 
 import Control.Monad.State
 import Data.Word

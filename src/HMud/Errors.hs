@@ -1,4 +1,4 @@
-module Errors where
+module HMud.Errors where
 
 import Control.Exception
 

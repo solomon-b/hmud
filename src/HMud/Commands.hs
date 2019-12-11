@@ -1,6 +1,4 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
-module Commands where
+module HMud.Commands where
 
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -8,12 +6,12 @@ import Data.List (intersperse)
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import Errors
-import Room
-import Parser
-import SqliteLib (User(..), formatUser)
-import State
-import Types
+import HMud.Errors
+import HMud.Room
+import HMud.Parser.Commands
+import HMud.SqliteLib (User(..), formatUser)
+import HMud.State
+import HMud.Types
   ( GameState(..)
   , HasConnectionHandle(..)
   , MonadDB(..)
@@ -24,7 +22,7 @@ import Types
   , Response(..)
   , UserEnv(..)
   )
-import World
+import HMud.World
 
 execCommand ::
   ( MonadReader UserEnv m
@@ -34,18 +32,19 @@ execCommand ::
   , MonadError AppError m
   , MonadThread m
   ) => Command -> m Response
-execCommand GetUsers = execGetUsers
-execCommand (GetUser username) = execGetUser username
-execCommand (AddUser user) = execAddUser user
-execCommand Exit = execExit
-execCommand Logout = execLogout
-execCommand Shutdown = execShutdown
-execCommand Whois = execWhois
-execCommand (Say msg) = execSay msg
-execCommand (Move dir) = execMovePlayer dir
-execCommand Look = execShowRoom
-execCommand Help = execHelp
-execCommand _ = throwError InvalidCommand
+execCommand = \case
+  GetUsers         -> execGetUsers
+  GetUser username -> execGetUser username
+  AddUser user     -> execAddUser user
+  Exit             -> execExit
+  Logout           -> execLogout
+  Shutdown         -> execShutdown
+  Whois            -> execWhois
+  Say msg          -> execSay msg
+  Move dir         -> execMovePlayer dir
+  Look target      -> execLook target
+  Help             -> execHelp
+  _                -> throwError InvalidCommand
 
 execHelp :: Monad m => m Response
 execHelp = pure RespHelp
@@ -75,11 +74,10 @@ execAddUser ::
   , MonadDB m
   ) => User -> m Response
 execAddUser user = do
-    conn <- asks getConnectionHandle
-    User _ username _ <- insertUser conn user
-    return . RespAnnounce $ T.concat [username, " was added to the database"]
+  conn <- asks getConnectionHandle
+  User _ username _ <- insertUser conn user
+  return . RespAnnounce $ T.concat [username, " was added to the database"]
 
--- TODO: Logout and disconnect client.
 execExit ::
   ( MonadReader UserEnv m
   , MonadThread m
@@ -146,13 +144,13 @@ execMovePlayer dir = do
           setState $ replacePlayerMap state playerMap'
           return $ RespAnnounce "You have moved into a new room..."
 
-execShowRoom ::
+execLook ::
   ( MonadReader UserEnv m
   , MonadGameState m
   , MonadPlayer m
   , MonadError AppError m
-  ) => m Response
-execShowRoom = do
+  ) => Target -> m Response
+execLook target = do
   globalState' <- readState
   eRoom        <- getUserLocation
   eUser        <- getUser

@@ -1,6 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
 import Control.Concurrent
@@ -14,11 +11,11 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Data.Map.Strict as M
 import Network.Socket
 
-import Dispatch
-import Prompts
-import qualified Socket
-import qualified SqliteLib as SQL
-import Types
+import HMud.Dispatch
+import HMud.Prompts
+import qualified HMud.Socket as Socket
+import qualified HMud.SqliteLib as SQL
+import HMud.Types
   ( Env(..)
   , GameState(..)
   , MonadDB(..)
@@ -31,7 +28,7 @@ import Types
   , UserEnv(..)
   , Response(..)
   )
-import World
+import HMud.World
 
 newtype AppM env a = App { unAppM :: ReaderT env IO a}
   deriving ( Functor

@@ -1,79 +1,93 @@
-name:                hmud
-version:             0.1.0.0
--- synopsis:
--- description:
-homepage:            https://github.com/ssbothwell/hmud#readme
-license:             BSD3
-license-file:        LICENSE
-author:              Solomon Bothwell
-maintainer:          ssbothwell@gmail.com 
-copyright:           2019 Solomon Bothwell
-category:            Web
-build-type:          Simple
-cabal-version:       >=1.10
-extra-source-files:  README.md
+cabal-version: 1.12
 
-executable hmud
-  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N -Wredundant-constraints
-  hs-source-dirs:      src
-  main-is:             Main.hs
-  default-language:    Haskell2010
-  other-modules:       Account
-                     , Commands
-                     , Dispatch
-                     , Errors
-                     , Room
-                     , Socket
-                     , SqliteLib
-                     , State
-                     , TelnetLib
-                     , Types
-                     , Prompts
-                     , Parser
-                     , World
-  build-depends:       base >= 4.7 && < 5
-                     , async
-                     , bytestring
-                     , containers
-                     , mtl
-                     , network
-                     , raw-strings-qq
-                     , sqlite-simple
-                     , stm
-                     , text
-                     , text-conversions
-                     , transformers
-                     , trifecta
-                     , unliftio-core
+-- This file has been generated from package.yaml by hpack version 0.32.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: d08f345828569f91f6229f43c6cf8ec0e15bd1d00070ecfd90ba93ee3fa6ddd6
+
+name:           hmud
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/HowardLang#readme>
+homepage:       https://github.com/ssbothwell/hMud#readme
+bug-reports:    https://github.com/ssbothwell/hMud/issues
+author:         Solomon Bothwell
+maintainer:     ssbothwell@gmail.com
+copyright:      2019 Solomon Bothwell
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+
+source-repository head
+  type: git
+  location: https://github.com/ssbothwell/hMud
 
 library
-  ghc-options:         -Wall -Wredundant-constraints
-  exposed-modules:     Account
-                     , Commands
-                     , Dispatch
-                     , Errors
-                     , Prompts
-                     , SqliteLib
-                     , State
-                     , Socket
-                     , Room
-                     , TelnetLib
-                     , Types
-                     , Parser
-                     , World
-  hs-source-dirs:      src
-  build-depends:       base >=4.7 && <5
-                     , async
-                     , bytestring
-                     , containers
-                     , mtl
-                     , network
-                     , raw-strings-qq
-                     , sqlite-simple
-                     , stm
-                     , text
-                     , text-conversions
-                     , trifecta
-                     , transformers
-                     , unliftio-core
+  exposed-modules:
+      HMud.Account
+      HMud.Commands
+      HMud.Dispatch
+      HMud.Errors
+      HMud.Prompts
+      HMud.SqliteLib
+      HMud.State
+      HMud.Socket
+      HMud.Room
+      HMud.TelnetLib
+      HMud.Types
+      HMud.Parser.Commands
+      HMud.World
+  other-modules:
+      HMud.Parser.Token
+      Paths_hmud
+  hs-source-dirs:
+      src
+  default-extensions: ScopedTypeVariables InstanceSigs LambdaCase DeriveFunctor DeriveFoldable GeneralizedNewtypeDeriving FlexibleContexts FlexibleInstances OverloadedStrings
+  build-depends:
+      async
+    , base >=4.7 && <5
+    , bytestring
+    , containers
+    , megaparsec
+    , mtl
+    , network
+    , parsers
+    , raw-strings-qq
+    , sqlite-simple
+    , stm
+    , text
+    , text-conversions
+    , transformers
+    , trifecta
+    , unliftio-core
+  default-language: Haskell2010
+
+executable hmud
+  main-is: Main.hs
+  other-modules:
+      Paths_hmud
+  hs-source-dirs:
+      app
+  default-extensions: ScopedTypeVariables InstanceSigs LambdaCase DeriveFunctor DeriveFoldable GeneralizedNewtypeDeriving FlexibleContexts FlexibleInstances OverloadedStrings
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Wredundant-constraints
+  build-depends:
+      async
+    , base >=4.7 && <5
+    , bytestring
+    , containers
+    , hmud
+    , megaparsec
+    , mtl
+    , network
+    , parsers
+    , raw-strings-qq
+    , sqlite-simple
+    , stm
+    , text
+    , text-conversions
+    , transformers
+    , trifecta
+    , unliftio-core
   default-language: Haskell2010

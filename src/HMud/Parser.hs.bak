@@ -1,6 +1,6 @@
-{-# LANGUAGE FlexibleContexts #-}
-module Parser ( Command(..)
+module HMud.Parser ( Command(..)
               , Direction(..)
+              , Target(..)
               , commandParser
               , mainMenuParser
               , resultToEither
@@ -20,12 +20,16 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Trifecta
 
-import Errors
-import SqliteLib (User(..))
+import HMud.Errors
+import HMud.SqliteLib (User(..))
+
 
 ---------------
 ---- Types ----
 ---------------
+
+data Target = Object Text | Dir Direction | Room
+  deriving (Eq, Show)
 
 data Command
     = GetUsers
@@ -35,7 +39,7 @@ data Command
     | Shutdown
     | Register
     | Raw Text
-    | Look
+    | Look Target
     | Login
     | Logout
     | Exit
@@ -68,10 +72,32 @@ instance Show Direction where
 ---- Parser ----
 ----------------
 
+rws :: [Text]
+rws = [ "exit"
+    , "register"
+    , "login"
+    , "logout"
+    , "help"
+    , "whois"
+    , "shutdown"
+    , "say"
+    , "here"
+    , "north"
+    , "south"
+    , "east"
+    , "west"
+    , "northwest"
+    , "northeast"
+    , "southwest"
+    , "southeast"
+    , "up"
+    , "down"
+    ]
+
 word :: Parser Text
 word = token $ T.pack <$> some letter
 
-genParser :: (String, Maybe String, Command) -> Parser Command
+genParser :: (String, Maybe String, a) -> Parser a
 genParser (str, mStr, comm) = token $
     case mStr of
         Just mstr' -> do
@@ -95,18 +121,20 @@ userCommands =
              , ("exit"      , Just "quit" , Exit)
              , ("logout"    , Nothing     , Logout)
              , ("whois"     , Nothing     , Whois)
-             , ("look"      , Just "l"    , Look)
-             , ("north"     , Just "n"    , Move N)
-             , ("south"     , Just "s"    , Move S)
-             , ("east"      , Just "e"    , Move E)
-             , ("west"      , Just "w"    , Move W)
-             , ("northeast" , Just "ne"   , Move NE)
-             , ("northwest" , Just "nw"   , Move NW)
-             , ("southeast" , Just "se"   , Move SE)
-             , ("southwest" , Just "sw"   , Move SW)
              --, ("getUser"  , Nothing    , GetUser)
-             --, ("say"      , Nothing    , Say)
              --, ("echo"     , Echo       , Echo)
+             ]
+
+directions :: [Parser Direction]
+directions = fmap genParser $
+             [ ("north"     , Just "n"    , N)
+             , ("south"     , Just "s"    , S)
+             , ("east"      , Just "e"    , E)
+             , ("west"      , Just "w"    , W)
+             , ("northeast" , Just "ne"   , NE)
+             , ("northwest" , Just "nw"   , NW)
+             , ("southeast" , Just "se"   , SE)
+             , ("southwest" , Just "sw"   , SW)
              ]
 
 adminCommands :: [(String, Maybe String, Command)]
@@ -120,10 +148,11 @@ commandParsers :: [Parser Command]
 commandParsers = parserGetUser
                : parserAddUser
                : parserSay
+               : parserLook
                : fmap genParser (userCommands ++ adminCommands)
 
 mainMenuParsers :: [Parser Command]
-mainMenuParsers = fmap genParser mainMenuCommands
+mainMenuParsers = genParser <$> mainMenuCommands
 
 parserGetUser :: Parser Command
 parserGetUser = token $ do
@@ -140,11 +169,24 @@ parserAddUser = token $ do
     password' <- word
     return $ AddUser (User 0 username' password')
 
+parserLook :: Parser Command
+parserLook= token $ do
+  void $ symbol "look"
+  target <- room <|> direct <|> object
+  pure $ Look target
+  where
+    object :: Parser Target
+    object = Object <$> word
+    direct :: Parser Target
+    direct = Dir <$> (choice directions)
+    room :: Parser Target
+    room = Room <$ (eof <|> void (symbol "here"))
+
 parserSay :: Parser Command
 parserSay = token $ do
     void $ symbol "say"
-    str <- anyChar `manyTill` eof --(char '\r' <|> char '\n')
-    return $ Say (T.pack str)
+    str <- word --(char '\r' <|> char '\n')
+    return $ Say str
 
 --sendHandle' sock $ BS.pack [255,251,1]
 --("\255\\\251\\\SOH", Nothing   , SuppressEcho)

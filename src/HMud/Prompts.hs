@@ -1,7 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
-module Prompts where
+module HMud.Prompts where
 
 import Control.Concurrent.STM
 import Control.Monad.Except
@@ -9,14 +6,14 @@ import Control.Monad.Reader
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 
-import Account
-import Commands
-import Dispatch
-import Errors
-import Parser
-import State
-import SqliteLib (User(..))
-import Types
+import HMud.Account
+import HMud.Commands
+import HMud.Dispatch
+import HMud.Errors
+import HMud.Parser.Commands
+import HMud.State
+import HMud.SqliteLib (User(..))
+import HMud.Types
   ( GameState(..)
   , HasConnectionHandle(..)
   , MonadDB(..)
@@ -28,7 +25,7 @@ import Types
   , UserEnv(..)
   , Response(..)
   )
-import World
+import HMud.World
 
 
 mainMenuPrompt ::
@@ -48,7 +45,6 @@ mainMenuPrompt = do
   cmdTchan  <- asks userEnvCmdTChan
   writeChannel respTChan $ Prompt "> "
   resp <- readChannel cmdTchan
-
   case resp of
     Right Exit -> do
       socket <- asks userEnvHandle

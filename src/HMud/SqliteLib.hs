@@ -1,6 +1,5 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-module SqliteLib
+module HMud.SqliteLib
     ( Handle(..)
     , Config(..)
     , User(..)
@@ -20,7 +19,7 @@ import qualified Database.SQLite.Simple as SQLite
 import Database.SQLite.Simple.Types
 import Text.RawString.QQ
 
-import Errors
+import HMud.Errors
 
 
 ----------------

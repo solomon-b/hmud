@@ -1,0 +1,78 @@
+name:                hmud
+version:             0.1.0.0
+github:              "ssbothwell/hMud"
+license:             BSD3
+author:              "Solomon Bothwell"
+maintainer:          "ssbothwell@gmail.com"
+copyright:           "2019 Solomon Bothwell"
+
+extra-source-files:
+- README.md
+
+# Metadata used when publishing your package
+# synopsis:            An interpreted lambda calculus with algebraic and recursive types
+# category:            Programming Language
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/githubuser/HowardLang#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- async
+- bytestring
+- containers
+- mtl
+- trifecta
+- megaparsec
+- network
+- parsers
+- raw-strings-qq
+- sqlite-simple
+- stm
+- text
+- text-conversions
+- transformers
+- unliftio-core
+
+default-extensions:
+  - ScopedTypeVariables
+  - InstanceSigs
+  - LambdaCase
+  - DeriveFunctor
+  - DeriveFoldable
+  - GeneralizedNewtypeDeriving
+  - FlexibleContexts
+  - FlexibleInstances
+  - OverloadedStrings
+
+library:
+  source-dirs: src
+  exposed-modules:
+    - HMud.Account
+    - HMud.Commands
+    - HMud.Dispatch
+    - HMud.Errors
+    - HMud.Prompts
+    - HMud.SqliteLib
+    - HMud.State
+    - HMud.Socket
+    - HMud.Room
+    - HMud.TelnetLib
+    - HMud.Types
+    - HMud.Parser.Commands
+    - HMud.World
+
+executables:
+  hmud:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    - -Wredundant-constraints
+    dependencies:
+    - hmud
