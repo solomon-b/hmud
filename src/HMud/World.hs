@@ -2,7 +2,6 @@ module HMud.World where
 
 import qualified Data.Map.Strict as M
 import HMud.Types
-import HMud.Parser.Commands (Direction(..))
 
 frontHallDescription :: Description
 frontHallDescription =
@@ -15,8 +14,8 @@ frontHall :: Room
 frontHall = Room
   { roomName = "The Fronthall"
   , roomDescription = frontHallDescription
-  , roomRoomId = 1
-  , roomAdjacent = M.fromList [(N, 2)]
+  , roomRoomId = RoomId 1
+  , roomAdjacent = M.fromList [(N, RoomId 2)]
   }
 
 kitchenDescription :: Description
@@ -28,14 +27,14 @@ kitchen :: Room
 kitchen = Room
   { roomName = "The Kitchen"
   , roomDescription = kitchenDescription
-  , roomRoomId = 2
-  , roomAdjacent = M.fromList [(S, 1)]
+  , roomRoomId = RoomId 2
+  , roomAdjacent = M.fromList [(S, RoomId 1)]
   }
 
 rooms :: [Room]
 rooms = [kitchen, frontHall]
 
-world :: World
+world :: WorldMap
 world = M.fromList $ fmap f rooms
     where f room = (roomRoomId room, room)
 

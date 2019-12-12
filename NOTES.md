@@ -35,9 +35,10 @@ data Room =
   , _inventoryId :: InventoryId
   }
 
-data Player =
+data Player = Player
   { _name        :: Text
   , _playerId    :: playerId
+  , _userId      :: UserId
   , _description :: Text
   , _inventoryId :: InventoryId
   }

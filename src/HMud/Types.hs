@@ -1,197 +1,167 @@
 module HMud.Types where
 
-import Control.Concurrent (ThreadId, myThreadId)
-import Control.Concurrent.STM
-import Control.Monad.Except
-import Control.Monad.Reader
-import Control.Monad.State
+import Control.Concurrent (ThreadId)
+import Control.Lens
 
 import Data.List (intersperse)
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T (concat, pack, append)
 import Data.Map.Strict (Map)
+import Database.SQLite.Simple
 import Data.Text (Text)
 
 import HMud.Errors
-import HMud.Parser.Commands (Command, Direction)
 import qualified HMud.Socket as Socket
-import qualified HMud.SqliteLib as SQL
-import HMud.SqliteLib (User(..), UserId)
-import HMud.TelnetLib
 
----------------------
----- MTL Classes ----
----------------------
+----------------
+--- Commands ---
+----------------
 
-class HasState env where
-  getState :: env -> TVar GameState
-instance HasState (TVar GameState) where
-  getState = id
-instance HasState Env where
-  getState = envStateTVar
-instance HasState UserEnv where
-  getState = userEnvStateTVar
+data Command
+    = GetUsers
+    | GetUser Text
+    | AddUser User
+    | Echo Text
+    | Shutdown
+    | Register
+    | Raw Text
+    | Look Target
+    | Login
+    | Logout
+    | Exit
+    | Help
+    | Whois
+    | Say Text
+    | Emote Text
+    | Move Direction
+    | Word Text
+    | SuppressEcho
+    | UnsuppressEcho
+    deriving (Eq, Show)
 
-class HasConnectionHandle env where
-  getConnectionHandle :: env -> SQL.Handle
-instance HasConnectionHandle SQL.Handle where
-  getConnectionHandle = id
-instance HasConnectionHandle Env where
-  getConnectionHandle = envConnHandle
-instance HasConnectionHandle UserEnv where
-  getConnectionHandle = userEnvConnHandle
+data Target = Object Text | Dir Direction | Here
+  deriving (Eq, Show)
 
-class HasSocketHandle env where
-  getSocketHandle :: env -> Socket.Handle
-instance HasSocketHandle Socket.Handle where
-  getSocketHandle = id
-instance HasSocketHandle Env where
-  getSocketHandle = envHandle
-instance HasSocketHandle UserEnv where
-  getSocketHandle = userEnvHandle
+data Direction =
+    N | S | E | W | NW | NE | SW | SE | U | D deriving (Eq, Ord)
 
-class HasUserId env where
-  getUserId :: env -> TVar (Maybe UserId)
-instance HasUserId (TVar (Maybe UserId)) where
-  getUserId = id
-instance HasUserId UserEnv where
-  getUserId = userEnvUserId
-
-class Monad m => MonadThread m where
-  getThread :: m ThreadId
-instance MonadIO m => MonadThread (ReaderT env m) where
-  getThread = liftIO myThreadId
-instance MonadIO m => MonadThread (ExceptT e m) where
-  getThread = liftIO myThreadId
-
-class Monad m => MonadTChan m where
-  createTChan      :: m (TChan a)
-  duplicateChannel :: TChan a -> m (TChan a)
-  writeChannel     :: TChan a -> a -> m ()
-  readChannel      :: TChan a -> m a
-instance MonadIO m => MonadTChan (ReaderT env m) where
-  createTChan        = liftIO . atomically $ newTChan
-  duplicateChannel   = liftIO . atomically . dupTChan
-  writeChannel tchan = liftIO . atomically . writeTChan tchan
-  readChannel        = liftIO . atomically . readTChan
-instance MonadIO m => MonadTChan (StateT s m) where
-  createTChan        = liftIO . atomically $ newTChan
-  duplicateChannel   = liftIO . atomically . dupTChan
-  writeChannel tchan = liftIO . atomically . writeTChan tchan
-  readChannel        = liftIO . atomically . readTChan
-instance MonadIO m => MonadTChan (ExceptT e m) where
-  createTChan        = liftIO . atomically $ newTChan
-  duplicateChannel   = liftIO . atomically . dupTChan
-  writeChannel tchan = liftIO . atomically . writeTChan tchan
-  readChannel        = liftIO . atomically . readTChan
-instance MonadTChan IO where
-  createTChan        = atomically   newTChan
-  duplicateChannel   = atomically . dupTChan
-  writeChannel tchan = atomically . writeTChan tchan
-  readChannel        = atomically . readTChan
-
-class Monad m => MonadTCP m where
-  acceptHandle' :: Socket.Handle -> m Socket.Handle
-  readHandle'   :: Socket.Handle -> m ByteString
-  sendHandle'   :: Socket.Handle -> ByteString -> m ()
-  closeHandle'  :: Socket.Handle -> m ()
-instance MonadIO m => MonadTCP (ReaderT env m) where
-  acceptHandle' =  liftIO    . Socket.acceptHandle
-  readHandle'   =  liftIO    . Socket.readHandle
-  sendHandle'   = (liftIO .) . Socket.sendHandle
-  closeHandle'  = liftIO     . Socket.closeHandle
-instance MonadIO m => MonadTCP (StateT s m) where
-  acceptHandle' =  liftIO    . Socket.acceptHandle
-  readHandle'   =  liftIO    . Socket.readHandle
-  sendHandle'   = (liftIO .) . Socket.sendHandle
-  closeHandle'  = liftIO     . Socket.closeHandle
-instance MonadTCP IO where
-  acceptHandle' = Socket.acceptHandle
-  readHandle'   = Socket.readHandle
-  sendHandle'   = Socket.sendHandle
-  closeHandle'  = Socket.closeHandle
-
-class Monad m => MonadDB m where
-  insertUser     :: SQL.Handle -> User -> m User
-  selectUser     :: SQL.Handle -> Text -> m (Either AppError User)
-  selectAllUsers :: SQL.Handle -> m [User]
-instance MonadIO m => MonadDB (ReaderT env m) where
-  insertUser handle user  = liftIO $ SQL.insertUser handle user
-  selectUser handle text  = liftIO $ SQL.selectUser handle text
-  selectAllUsers          = liftIO . SQL.selectAllUsers
-
-class MonadTCP m => MonadPrompt m where
-  prompt :: ByteString -> m ByteString
--- NOTE: This instance does not behave properly and should not be used without a rewrite.
-instance (HasSocketHandle env, MonadIO m) => MonadPrompt (ReaderT env m) where
-  prompt prefix = do
-    handle <- asks getSocketHandle
-    sendHandle' handle (BS.append prefix (BS.pack [255, 249]))
-    rawMsg <- readHandle' handle
-    case (unBuffer . processStream) rawMsg of
-      Nothing  -> prompt prefix
-      Just msg -> return msg
-
-class Monad m => MonadGameState m where
-  modifyState :: (GameState -> GameState) -> m ()
-  setState    :: GameState -> m ()
-  readState   :: m GameState
-instance (HasState env, MonadIO m) => MonadGameState (ReaderT env m) where
-  modifyState f = asks getState >>= (liftIO . atomically . flip modifyTVar' f)
-  setState    s = asks getState >>= (liftIO . atomically . flip writeTVar s)
-  readState     = asks getState >>= (liftIO . atomically . readTVar)
-
-class Monad m => MonadPlayer m where
-  getUser :: m (Either AppError User)
-  setUser :: UserId -> m ()
-instance ( HasUserId env , HasState env , MonadIO m) => MonadPlayer (ReaderT env m) where
-  getUser = do
-    (GameState activePlayers _ _ _) <- readState
-    tvar <- asks getUserId
-    mUid <- liftIO . atomically $ readTVar tvar
-    case mUid of
-      Nothing -> return $ Left NotLoggedIn
-      Just uid ->
-        let user = M.lookup uid activePlayers
-        in return $ maybe (Left NoSuchUser) Right user
-  setUser uid = do
-    tvar <- asks getUserId
-    liftIO . atomically $ writeTVar tvar (Just uid)
-
-class MonadGameState m => MonadObjectLookup m where
-  lookupObjectByName :: Text -> m Item
+instance Show Direction where
+    show U  = "Up"
+    show D  = "Down"
+    show N  = "North"
+    show S  = "South"
+    show E  = "East"
+    show W  = "West"
+    show NW = "Northwest"
+    show NE = "Northeast"
+    show SW = "Southwest"
+    show SE = "Southeast"
 
 -------------------
 ---- State/Env ----
 -------------------
 
-data Env =
-  Env { envStateTVar  :: TVar GameState
-      , envWChannel   :: TChan Response
-      , envConnHandle :: SQL.Handle
-      , envHandle     :: Socket.Handle
-      }
+newtype ItemTypeId = ItemTypeId Integer deriving (Show, Eq, Ord)
+newtype ItemId = ItemId Integer deriving (Show, Eq, Ord)
+newtype InventoryId = InventoryId Integer deriving (Show, Eq, Ord)
+newtype RoomId = RoomId Integer deriving (Show, Eq, Ord)
+newtype PlayerId = PlayerId Integer deriving (Show, Eq, Ord)
 
-data UserEnv =
-  UserEnv { userEnvConnHandle :: SQL.Handle              -- Remove Soon?
-          , userEnvHandle     :: Socket.Handle           -- Remove Soon?
-          , userEnvStateTVar  :: TVar GameState          -- Shared State
-          , userEnvPubTChan   :: TChan Response          -- Public Message Channel
-          --, userEnvCmdTChan   :: TChan Command           -- Read Commands from the socket
-          , userEnvCmdTChan   :: TChan (Either AppError Command) -- Read Commands from the socket
-          , userEnvRespTchan  :: TChan Response          -- Write Responses to the socket
-          , userEnvUserId     :: TVar (Maybe UserId) -- Current User ID
-          }
+type ActivePlayers = Map PlayerId Player
+type UserMap       = Map UserId PlayerId
+type WorldMap      = Map RoomId Room
+type PlayerMap     = Map RoomId [PlayerId]
+type InventoryMap  = Map InventoryId [ItemId]
+type ItemTypeMap   = Map ItemTypeId ItemType
+type ItemMap       = Map ItemId Item
 
-type ActiveUsers = Map UserId User
-data GameState =
-  GameState { globalActiveUsers :: ActiveUsers
-            , globalWorld       :: World
-            , globalPlayerMap   :: PlayerMap
-            , globalItemMap     :: ItemMap
-            } deriving Show
+type TwoHanded = Bool
+data EquipmentType = Head | Torso | Legs | Feet | Hand TwoHanded | Arms | Finger
+  deriving Show
+
+data ItemType = ItemType
+  { _itemTypeName              :: Text
+  , _itemTypeItemTypeId        :: ItemTypeId
+  , _itemTypeContainerCapacity :: Integer
+  , _itemTypeWeight            :: Integer
+  , _itemTypeIsEquippable      :: Bool
+  , _itemTypeEquipmentType     :: EquipmentType
+  , _itemTypeMovable           :: Bool
+  , _itemTypeDescription       :: Text
+  } deriving Show
+
+data Item = Item
+  { _itemItemId       :: ItemId
+  , _itemItemTypeId   :: ItemTypeId
+  , _itemInventoryId  :: Maybe InventoryId
+  } deriving Show
+
+type UserId = Integer
+
+data User = User
+  { _userUserId   :: Integer
+  , _userUsername :: Text
+  , _userPassword :: Text
+  } deriving (Eq)
+
+data Player = Player
+  { _playerPlayerId    :: PlayerId
+  , _playerName        :: Text
+  , _playerUserId      :: UserId
+  , _playerDescription :: Text
+  , _playerInventoryId :: InventoryId
+  } deriving (Eq, Show)
+
+
+data GameState = GameState
+  { _gsActivePlayers :: ActivePlayers
+  , _gsUserMap       :: UserMap
+  , _gsWorldMap      :: WorldMap
+  , _gsPlayerMap     :: PlayerMap
+  , _gsInventoryMap  :: InventoryMap
+  , _gsItemTypeMap   :: ItemTypeMap
+  , _gsItemMap       :: ItemMap
+  } deriving Show
+
+---------------------------
+--- SQLite Transformers ---
+---------------------------
+
+instance FromRow User where
+  fromRow = User <$> field <*> field <*> field
+instance ToRow User where
+  toRow (User _ username' password') = toRow (username', password')
+instance Show User where
+  show user = show (_userUsername user)
+instance FromRow Player where
+  fromRow = Player <$> (PlayerId <$> field) <*> field <*> field <*> field <*> (InventoryId <$> field)
+instance ToRow Player where
+  toRow (Player (PlayerId t1) t2 t3 t4 (InventoryId t5)) = toRow (t1, t2, t3, t4, t5)
+
+-------------------
+---- The World ----
+-------------------
+
+type Name = Text
+
+type Description = Text
+
+data Room =
+  Room { roomName        :: Name
+       , roomDescription :: Description
+       , roomRoomId      :: RoomId
+       , roomAdjacent    :: Map Direction RoomId
+       }
+
+instance Show Room where
+  show (Room name desc _ dir) =
+      show name ++ "\n" ++
+      show desc ++ "\n" ++
+      "Exits: " ++ show (M.keys dir)
+instance TShow Room where
+  tshow = T.pack . show
+
+newtype RoomText = RoomText { getRoomText :: Text } deriving Show
 
 
 ------------------------
@@ -205,21 +175,25 @@ data Response
   | RespAnnounce Text
   | Prompt Text
   | RespRegister Username
+  | RespPlayerCreated Text
   | RespShutdown
   | RespExit ThreadId Socket.Handle
   | RespLogout
   | RespAppError AppError
 
 instance Show Response where
-  show (RespSay user msg)  = concat ["<", show user, "> ", show msg]
-  show (RespLook text)     = show text
-  show (RespAnnounce text) = show text
-  show (Prompt text)       = show text
-  show (RespRegister u)    = "Account Registration Successful: " ++ show u
-  show RespShutdown        = "RespShutdown"
-  show (RespExit thread _) = "Closing thread: " ++ show thread
-  show (RespAppError err)  = show err
-  show (RespHelp)          = foldMap show availableCommands
+  show = \case
+    RespSay user msg    -> concat ["<", show user, "> ", show msg]
+    RespLook text       -> show text
+    RespAnnounce text   -> show text
+    Prompt text         -> show text
+    RespRegister u      -> "Account Registration Successful: " ++ show u
+    RespPlayerCreated p -> "Player created: " ++ show p
+    RespShutdown        -> "RespShutdown"
+    RespExit thread _   -> "Closing thread: " ++ show thread
+    RespLogout          -> "Goodbye!"
+    RespAppError err    -> show err
+    RespHelp            -> foldMap show availableCommands
 
 availableCommands :: [Text]
 availableCommands = intersperse "\r\n" commands
@@ -249,36 +223,6 @@ type Username = Text
 class TShow a where
   tshow :: a -> Text
 
--------------------
----- The World ----
--------------------
-
-type Name = Text
-
-type Description = Text
-type RoomId      = Integer
-type ItemId      = Integer
-type World       = Map RoomId Room
-type PlayerMap   = Map RoomId [UserId]
-type ItemMap     = Map RoomId [ItemId]
-
-data Room =
-  Room { roomName        :: Name
-       , roomDescription :: Description
-       , roomRoomId      :: RoomId
-       , roomAdjacent    :: Map Direction RoomId
-       }
-
-instance Show Room where
-  show (Room name desc _ dir) =
-      show name ++ "\n" ++
-      show desc ++ "\n" ++
-      "Exits: " ++ show (M.keys dir)
-instance TShow Room where
-  tshow = T.pack . show
-
-newtype RoomText = RoomText { getRoomText :: Text } deriving Show
-
 ----------------
 --- Lookable ---
 ----------------
@@ -289,19 +233,19 @@ class Lookable a where
 instance Lookable Room where
   look = tshow
 
-instance Lookable User where
-  look user = userUsername user
+instance Lookable Player where
+  look = _playerName
 
 instance Lookable Item where
   look = T.pack . show
 
--------------
---- Items ---
--------------
+--------------
+--- Lenses ---
+--------------
 
-data Item
-  = Clothing
-  | Food
-  | Weapon
-  | Misc
-  deriving Show
+makeLenses ''GameState
+makeLenses ''Room
+makeLenses ''Item
+makeLenses ''Player
+makeLenses ''User
+makeLenses ''ItemType

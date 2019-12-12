@@ -35,6 +35,7 @@ dependencies:
 - text-conversions
 - transformers
 - unliftio-core
+- lens
 
 default-extensions:
   - ScopedTypeVariables
@@ -46,6 +47,7 @@ default-extensions:
   - FlexibleContexts
   - FlexibleInstances
   - OverloadedStrings
+  - TemplateHaskell
 
 library:
   source-dirs: src
@@ -61,6 +63,7 @@ library:
     - HMud.Room
     - HMud.TelnetLib
     - HMud.Types
+    - HMud.Types.Classes
     - HMud.Parser.Commands
     - HMud.World
 

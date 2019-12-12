@@ -12,7 +12,8 @@ import Text.Megaparsec.Byte
 
 import HMud.Errors
 import HMud.Parser.Token
-import HMud.SqliteLib (User(..))
+import HMud.Types
+--import HMud.SqliteLib (User(..))
 
 {-
 Main Menu Commands
@@ -42,47 +43,6 @@ nw
 se
 sw
 -}
-
-data Target = Object Text | Dir Direction | Room
-  deriving (Eq, Show)
-
-data Command
-    = GetUsers
-    | GetUser Text
-    | AddUser User
-    | Echo Text
-    | Shutdown
-    | Register
-    | Raw Text
-    | Look Target
-    | Login
-    | Logout
-    | Exit
-    | Help
-    | Whois
-    | Say Text
-    | Emote Text
-    | Move Direction
-    | Word Text
-    | SuppressEcho
-    | UnsuppressEcho
-    deriving (Eq, Show)
-
-data Direction =
-    N | S | E | W | NW | NE | SW | SE | U | D deriving (Eq, Ord)
-
-instance Show Direction where
-    show U  = "Up"
-    show D  = "Down"
-    show N  = "North"
-    show S  = "South"
-    show E  = "East"
-    show W  = "West"
-    show NW = "Northwest"
-    show NE = "Northeast"
-    show SW = "Southwest"
-    show SE = "Southeast"
-
 
 -----------------
 --- Main Menu ---
@@ -156,7 +116,7 @@ pHelp = (rword "help" <|> rword "h") $> Help
 
 pMove :: Parser Command
 pMove = do
-  optional $ rword "move" <|> rword "m"
+  void . optional $ rword "move" <|> rword "m"
   Move <$> pDirection
 
 pLook :: Parser Command
@@ -170,7 +130,7 @@ pLook = do
     direct :: Parser Target
     direct = Dir <$> pDirection
     room :: Parser Target
-    room = Room <$ (eof <|> void (symbol "here"))
+    room = Here <$ (eof <|> void (symbol "here"))
 
 pInGame :: Parser Command
 pInGame = pSay <|> pLogout <|> pHelp <|> pLook <|> pMove

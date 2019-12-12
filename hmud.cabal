@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: d08f345828569f91f6229f43c6cf8ec0e15bd1d00070ecfd90ba93ee3fa6ddd6
+-- hash: 0ebf05054872f57a7bb30c20f59ee7e949364bfdf15e616c33be4d775bf57091
 
 name:           hmud
 version:        0.1.0.0
@@ -37,6 +37,7 @@ library
       HMud.Room
       HMud.TelnetLib
       HMud.Types
+      HMud.Types.Classes
       HMud.Parser.Commands
       HMud.World
   other-modules:
@@ -44,12 +45,13 @@ library
       Paths_hmud
   hs-source-dirs:
       src
-  default-extensions: ScopedTypeVariables InstanceSigs LambdaCase DeriveFunctor DeriveFoldable GeneralizedNewtypeDeriving FlexibleContexts FlexibleInstances OverloadedStrings
+  default-extensions: ScopedTypeVariables InstanceSigs LambdaCase DeriveFunctor DeriveFoldable GeneralizedNewtypeDeriving FlexibleContexts FlexibleInstances OverloadedStrings TemplateHaskell
   build-depends:
       async
     , base >=4.7 && <5
     , bytestring
     , containers
+    , lens
     , megaparsec
     , mtl
     , network
@@ -70,7 +72,7 @@ executable hmud
       Paths_hmud
   hs-source-dirs:
       app
-  default-extensions: ScopedTypeVariables InstanceSigs LambdaCase DeriveFunctor DeriveFoldable GeneralizedNewtypeDeriving FlexibleContexts FlexibleInstances OverloadedStrings
+  default-extensions: ScopedTypeVariables InstanceSigs LambdaCase DeriveFunctor DeriveFoldable GeneralizedNewtypeDeriving FlexibleContexts FlexibleInstances OverloadedStrings TemplateHaskell
   ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Wredundant-constraints
   build-depends:
       async
@@ -78,6 +80,7 @@ executable hmud
     , bytestring
     , containers
     , hmud
+    , lens
     , megaparsec
     , mtl
     , network

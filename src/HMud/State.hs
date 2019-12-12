@@ -6,20 +6,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import HMud.Errors
-import HMud.SqliteLib
-  (formatUser
-  , User(..)
-  , UserId
-  )
 import HMud.Types
-  ( ActiveUsers
-  , GameState(..)
-  , PlayerMap
-  , ItemMap
-  , RoomId
-  , ItemId
-  )
-
 
 maybeToEither :: a -> Maybe b -> Either a b
 maybeToEither _ (Just b) = Right b
@@ -29,64 +16,56 @@ maybeToEither a Nothing = Left a
 ---- GameState Manipulation ----
 ----------------------------------
 
---- ActiveUsers ---
+--- ActivePlayers ---
 
-removeUser :: UserId -> ActiveUsers -> ActiveUsers
+removeUser :: PlayerId -> M.Map PlayerId Player -> M.Map PlayerId Player
 removeUser = M.delete
 
-addUser :: User -> ActiveUsers -> ActiveUsers
-addUser user activeUsers =
-  let uid = userUserId user
-  in M.insert uid user activeUsers
+addUser :: Player -> ActivePlayers -> ActivePlayers
+addUser user = M.insert (_playerPlayerId user) user
 
 whois :: GameState -> Text
 whois state =
- let users = M.elems $ globalActiveUsers state
-     formatedUsers = formatUser <$> users
- in T.concat . intersperse (T.pack "\n") $ formatedUsers
+ let players = M.elems $ _gsActivePlayers state
+     names = _playerName <$> players
+ in T.concat . intersperse (T.pack "\n") $ names
 
 --- PlayerMap ---
 
 replacePlayerMap :: GameState -> PlayerMap -> GameState
-replacePlayerMap (GameState activeUsers' world _ items) =
-  flip (GameState activeUsers' world) items
+replacePlayerMap gs newPlayerMap = gs { _gsPlayerMap = newPlayerMap}
 
-removePlayer :: UserId -> RoomId -> PlayerMap -> PlayerMap
+removePlayer :: PlayerId -> RoomId -> PlayerMap -> PlayerMap
 removePlayer uid =
   M.adjust (filter (/= uid))
 
-addPlayer :: UserId -> RoomId -> PlayerMap -> PlayerMap
+addPlayer :: PlayerId -> RoomId -> PlayerMap -> PlayerMap
 addPlayer uid =
   M.adjust ((:) uid)
 
-lookupPlayer :: UserId -> ActiveUsers -> Either AppError User
-lookupPlayer uid activeUsers' =
-  let user = M.lookup uid activeUsers'
-  in maybe (Left NoSuchUser) Right user
+lookupPlayer :: PlayerId -> ActivePlayers -> Either AppError Player
+lookupPlayer uid activePlayers =
+  let player = M.lookup uid activePlayers
+  in maybe (Left NoSuchUser) Right player
 
-swapPlayer :: UserId -> RoomId -> RoomId -> PlayerMap -> PlayerMap
+swapPlayer :: PlayerId -> RoomId -> RoomId -> PlayerMap -> PlayerMap
 swapPlayer uid rid rid' =
   addPlayer uid rid' . removePlayer uid rid
 
-findPlayer :: UserId -> PlayerMap -> Either AppError (RoomId, UserId)
+findPlayer :: PlayerId -> M.Map RoomId [PlayerId] -> Either AppError (RoomId, PlayerId)
 findPlayer uid playerMap' =
-  let f :: (RoomId, [UserId]) -> [(RoomId, UserId)]
+  let f :: (RoomId, [PlayerId]) -> [(RoomId, PlayerId)]
       f (i, xs) = (,) i <$> xs
-      players :: [(RoomId, UserId)]
+      players :: [(RoomId, PlayerId)]
       players = concatMap f (M.toList playerMap')
-      g :: (RoomId, UserId) -> Bool
+      g :: (RoomId, PlayerId) -> Bool
       g (_, uid') = uid == uid'
-      player :: Maybe (RoomId, UserId)
+      player :: Maybe (RoomId, PlayerId)
       player = find g players
   in maybeToEither UserNotInPlayerMap player
 
-findAndSwapPlayer :: UserId -> RoomId -> PlayerMap -> PlayerMap
+findAndSwapPlayer :: PlayerId -> RoomId -> PlayerMap -> PlayerMap
 findAndSwapPlayer uid rid playerMap' =
   case findPlayer uid playerMap' of
     Right (rid', _) -> swapPlayer uid rid' rid playerMap'
     _ -> addPlayer uid rid playerMap'
-
---- ItemMap ---
-
-findItemByName :: ItemMap -> Text -> Maybe ItemId
-findItemByName = undefined

@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 module Main where
 
 import Control.Applicative
@@ -5,6 +6,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM hiding (stateTVar)
 import Control.Monad (forever)
+import Control.Monad.Fail
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.IO.Unlift
@@ -12,23 +14,13 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Data.Map.Strict as M
 import Network.Socket
 
+import HMud.Errors
 import HMud.Dispatch
 import HMud.Prompts
 import qualified HMud.Socket as Socket
 import qualified HMud.SqliteLib as SQL
 import HMud.Types
-  ( Env(..)
-  , GameState(..)
-  , MonadDB(..)
-  , MonadTChan(..)
-  , MonadGameState(..)
-  , MonadTCP(..)
-  , MonadPlayer(..)
-  , MonadPrompt(..)
-  , MonadThread(..)
-  , UserEnv(..)
-  , Response(..)
-  )
+import HMud.Types.Classes
 import HMud.World
 
 newtype AppM env a = App { unAppM :: ReaderT env IO a}
@@ -42,11 +34,13 @@ newtype AppM env a = App { unAppM :: ReaderT env IO a}
            , MonadReader env
            , MonadGameState
            , MonadPlayer
-           , MonadPrompt
            , MonadTChan
            , MonadTCP
            , MonadThread
            )
+
+instance MonadError AppError (AppM AppError) => MonadFail (AppM AppError) where
+  fail _ = throwError InvalidCommand
 
 userLoop ::
   ( MonadReader UserEnv m
@@ -111,7 +105,7 @@ launchApp sqlC sockC env =
 
 main :: IO ()
 main = withSocketsDo $ do
-  state    <- atomically $ newTVar (GameState M.empty world playerMap M.empty)
+  state    <- atomically $ newTVar (GameState M.empty M.empty world playerMap M.empty M.empty M.empty)
   wChannel <- newTChanIO
-  let env = Env state wChannel --users
+  let env = Env state wChannel
   launchApp dBConfig socketConfig env

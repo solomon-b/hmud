@@ -5,10 +5,14 @@ module HMud.SqliteLib
     , User(..)
     , UserId
     , withHandle
+    , createDatabase
     , insertUser
     , selectUser
     , selectAllUsers
     , formatUser
+    , insertPlayer
+    , selectPlayer
+    , selectAllPlayers
     ) where
 
 import Control.Exception (Exception, bracket, throwIO)
@@ -20,6 +24,7 @@ import Database.SQLite.Simple.Types
 import Text.RawString.QQ
 
 import HMud.Errors
+import HMud.Types
 
 
 ----------------
@@ -39,18 +44,9 @@ closeHandle (Handle db) = close db
 withHandle :: Config -> (Handle -> IO a) -> IO a
 withHandle config = bracket (newHandle config) closeHandle
 
-
 ---------------
 ---- Types ----
 ---------------
-
-type UserId = Integer
-
-data User =
-    User { userUserId   :: Integer
-         , userUsername :: Text
-         , userPassword :: Text
-         } deriving Eq
 
 type UserRow = (Null, Text, Text)
 
@@ -58,15 +54,6 @@ data DuplicateData = DuplicateData
     deriving (Eq, Show, Typeable)
 
 instance Exception DuplicateData
-
-instance FromRow User where
-    fromRow = User <$> field <*> field <*> field
-
-instance ToRow User where
-    toRow (User _ username' password') = toRow (username', password')
-
-instance Show User where
-    show user = show (userUsername user)
 
 -----------------
 ---- Queries ----
@@ -81,18 +68,38 @@ CREATE TABLE IF NOT EXISTS users
 |]
 
 insertUserQuery :: Query
-insertUserQuery =
-    "INSERT INTO users\
-    \ VALUES (NULL, ?, ?)"
+insertUserQuery = [r|
+INSERT INTO users
+ VALUES (NULL, ?, ?)
+|]
 
 selectAllUsersQuery :: Query
-selectAllUsersQuery =
-    "SELECT * from users"
+selectAllUsersQuery = "SELECT * from users"
 
 selectUserQuery :: Query
-selectUserQuery =
-    "SELECT * from users where username = ?"
+selectUserQuery = "SELECT * from users where username = ?"
 
+createPlayerTableQuery :: Query
+createPlayerTableQuery = [r|
+CREATE TABLE IF NOT EXISTS players
+    (id INTEGER PRIMARY KEY AUTOINCREMENT,
+     name TEXT UNIQUE,
+     userId INTEGER,
+     description TEXT,
+     inventoryId INTEGER AUTOINCREMENT)
+|]
+
+insertPlayerQuery :: Query
+insertPlayerQuery = [r|
+INSERT INTO players
+ VALUES (NULL, ?, ?, ?, NULL)
+|]
+
+selectAllPlayersQuery :: Query
+selectAllPlayersQuery = "SELECT * from players"
+
+selectPlayerQuery :: Query
+selectPlayerQuery = "SELECT * from players where name = ?"
 
 -----------------------
 ---- Database CRUD ----
@@ -102,19 +109,19 @@ createDatabase :: IO ()
 createDatabase = do
     conn <-  open "hmud.db"
     execute_ conn createUserTableQuery
-    execute conn insertUserQuery defUser
+    execute_ conn createPlayerTableQuery
+    --execute conn insertUserQuery defUser
     users <- query_ conn selectAllUsersQuery
     mapM_ print (users :: [User])
     SQLite.close conn
-    where defUser :: UserRow
-          defUser = (Null, "solomon", "pass")
+    --where defUser :: UserRow
+    --      defUser = (Null, "solomon", "pass")
 
--- TODO: Thse pure functions should probably go somewhere else?
+-- TODO: These pure functions should probably go somewhere else?
 formatUser :: User -> Text
 formatUser (User uid name _) =
     Data.Text.concat [ "Player: "  , name, "\t"
                      , "UID: "     , (pack . show) uid]
-
 
 -----------------
 ---- Actions ----
@@ -135,4 +142,20 @@ selectAllUsers (Handle conn) = query_ conn selectAllUsersQuery
 insertUser :: Handle -> User -> IO User
 insertUser (Handle conn) user = do
     execute conn insertUserQuery user
+    return user
+
+selectPlayer :: Handle -> Text -> IO (Either AppError Player)
+selectPlayer (Handle conn) user = do
+    results <- query conn selectPlayerQuery (Only user)
+    case results of
+        [] -> return $ Left NoSuchUser -- TODO: Add Player Specific Error Message
+        [user'] -> return $ Right user'
+        _ -> throwIO DuplicateData
+
+selectAllPlayers :: Handle -> IO [Player]
+selectAllPlayers (Handle conn) = query_ conn selectAllPlayersQuery
+
+insertPlayer :: Handle -> Player -> IO Player
+insertPlayer (Handle conn) user = do
+    execute conn insertPlayerQuery user
     return user

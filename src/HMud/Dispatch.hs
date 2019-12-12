@@ -21,14 +21,8 @@ import HMud.Errors
 import HMud.Parser.Commands
 import HMud.Socket as Socket
 import HMud.TelnetLib
+import HMud.Types.Classes
 import HMud.Types
-    ( UserEnv(..)
-    , HasSocketHandle(..)
-    , MonadTChan(..)
-    , MonadTCP(..)
-    , Response(..)
-    , tshow
-    )
 
 -- Always define the naturals:
 data Peano = Zero | Succ Peano deriving Show             -- Temporary for debug prints in `cmdLoopInner`

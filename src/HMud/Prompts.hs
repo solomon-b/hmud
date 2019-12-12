@@ -1,132 +1,101 @@
 module HMud.Prompts where
 
 import Control.Concurrent.STM
+import Control.Monad.Fail
 import Control.Monad.Except
 import Control.Monad.Reader
+import Data.List (find)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
+import Data.Text (Text)
+
+import Control.Lens
 
 import HMud.Account
 import HMud.Commands
 import HMud.Dispatch
 import HMud.Errors
-import HMud.Parser.Commands
-import HMud.State
-import HMud.SqliteLib (User(..))
 import HMud.Types
-  ( GameState(..)
-  , HasConnectionHandle(..)
-  , MonadDB(..)
-  , MonadGameState(..)
-  , MonadPlayer(..)
-  , MonadThread(..)
-  , MonadPrompt(..)
-  , MonadTChan(..)
-  , UserEnv(..)
-  , Response(..)
-  )
-import HMud.World
-
+import HMud.Types.Classes
 
 mainMenuPrompt ::
   ( MonadReader UserEnv m
   , MonadThread m
   , MonadGameState m
-  , MonadPrompt m
   , MonadTChan m
   , MonadPlayer m
   , MonadDB m
   , MonadError AppError m
+  , MonadTCP m
   ) => m Response
 mainMenuPrompt = do
   respTChan <- asks userEnvRespTchan
   mapM_ (writeChannel respTChan . RespAnnounce) ["Welcome to hMud", "Options: register, login, exit"]
-
-  cmdTchan  <- asks userEnvCmdTChan
-  writeChannel respTChan $ Prompt "> "
-  resp <- readChannel cmdTchan
+  resp <- prompt $ PromptEnv "> " False
   case resp of
-    Right Exit -> do
+    Exit -> do
       socket <- asks userEnvHandle
       threadId <- getThread
       pure $ RespExit threadId socket
-    Right Login -> loginPrompt
-    Right Register -> registerPrompt
+    Login -> loginPrompt
+    Register -> registerPrompt
     _ -> throwError InvalidCommand
 
 loginPrompt ::
   ( MonadReader UserEnv m
   , MonadDB m
   , MonadGameState m
-  , MonadPrompt m
   , MonadTChan m
   , MonadPlayer m
   , MonadError AppError m
+  , MonadTCP m
   ) => m Response
 loginPrompt = do
-  activeUsers <- globalActiveUsers <$> readState
-  playerMap'  <- globalPlayerMap <$> readState
-  itemMap     <- globalItemMap <$> readState
-  respTChan   <- asks userEnvRespTchan
-  cmdTchan    <- asks userEnvCmdTChan
-  handle      <- asks getConnectionHandle
-  users       <- selectAllUsers handle
+  gs <- readState
+  handle <- asks getConnectionHandle
+  users <- selectAllUsers handle
 
-  writeChannel respTChan $ Prompt "Login: "
-  username <- readCmd cmdTchan
-  writeChannel respTChan $ Prompt "Password: "
-  suppressEcho
-  password <- readCmd cmdTchan
-  unsuppressEcho
+  username <- prompt (PromptEnv "Login: " False)
+  password <- prompt (PromptEnv "Password: " True)
+
   let loginResult = verifyLogin username password users
-
   case loginResult of
     Left e -> throwError e
-    Right user ->
-      if userIsLoggedIn activeUsers (userUserId user)
-      then loginPrompt
-      else do
-        let uid = userUserId user
-            activeUsersMap = M.insert (userUserId user) user activeUsers
-            playerMap'' = addPlayer uid 1 playerMap'
-        setUser uid
-        setState $ GameState activeUsersMap world playerMap'' itemMap
-        return . RespAnnounce $ userUsername user `T.append` " Logged In"
+    Right user -> do
+      playerId <- gs ^. gsUserMap . at (_userUserId user) . to (maybe (throwError NoSuchUser) pure)
+      player <- gs ^. gsActivePlayers . at playerId . to (maybe (throwError NoSuchUser) pure)
+      if playerId `M.member` (gs ^. gsActivePlayers)
+        then loginPrompt
+        else do
+        setUser  $ _userUserId user
+        setState $ gs & gsActivePlayers . at playerId ?~ player
+        setState $ gs & gsPlayerMap . at (RoomId 1) . non mempty <>~ pure playerId
+        pure . RespAnnounce $ _userUsername user `T.append` " Logged In"
 
--- TODO: Replace with Lens
-verifyLogin :: Command -> Command -> [User] -> Either AppError User
-verifyLogin username password users =
-  case (username, password) of
-    (Word username', Word password') -> do
-      user <- findUserByName users username'
-      checkPassword password' user
-    _ -> Left InvalidCommand
+verifyLogin :: MonadError AppError m => Command -> Command -> [User] -> m User
+verifyLogin (Word username) (Word password) users = do
+      user <- maybe (throwError NoSuchUser) pure $ find (\user -> _userUsername user == username) users
+      if password == (_userPassword user)
+        then pure user
+        else throwError InvalidPassword
+verifyLogin _ _ _ = throwError InvalidCommand
 
 registerPrompt ::
   ( MonadReader UserEnv m
   , MonadDB m
   , MonadGameState m
   , MonadPlayer m
-  , MonadPrompt m
   , MonadError AppError m
   , MonadTChan m
+  , MonadTCP m
   ) => m Response
 registerPrompt = do
   handle <- asks getConnectionHandle
   users <- selectAllUsers handle
-  respTChan   <- asks userEnvRespTchan
-  cmdTchan    <- asks userEnvCmdTChan
 
-  writeChannel respTChan $ Prompt "Username: "
-  username' <- readCmd cmdTchan
-  writeChannel respTChan $ Prompt "Password: "
-  suppressEcho
-  password1' <- readCmd cmdTchan
-  unsuppressEcho
-  writeChannel respTChan $ Prompt "Repeat Password: "
-  suppressEcho
-  password2' <- readCmd cmdTchan
-  unsuppressEcho
+  username' <- prompt (PromptEnv "Login: " False)
+  password1' <- prompt (PromptEnv "Password: " True)
+  password2' <- prompt (PromptEnv "Repeat Password: " True)
 
   case (username', password1', password2') of
     (Word username, Word password1, Word password2) ->
@@ -139,6 +108,46 @@ registerPrompt = do
             else throwError PasswordsDontMatch
         else throwError UsernameAlreadyExists
     _ -> registerPrompt
+
+createPlayerPrompt ::
+  ( MonadReader UserEnv m
+  , MonadDB m
+  , MonadTChan m
+  , MonadTCP m
+  , MonadError AppError m
+  , MonadPlayer m
+  , MonadFail m
+  ) => m Response
+createPlayerPrompt = do
+  userId <- maybe (throwError NotLoggedIn ) pure =<< getUserId
+  Word name <- prompt (PromptEnv "Name: " False)
+  Word description <- prompt (PromptEnv "Description: " False)
+  createPlayer userId name description
+  pure $ RespPlayerCreated name
+
+createPlayer ::
+  ( MonadReader UserEnv m
+  , MonadDB m
+  ) => UserId -> Text -> Text -> m ()
+createPlayer uid name desc = do
+  handle <- asks getConnectionHandle
+  void . insertPlayer handle $ Player (PlayerId 0) name uid desc (InventoryId 0)
+
+data PromptEnv = PromptEnv { _prefix :: Text, _suppressed :: Bool}
+
+prompt ::
+  ( MonadReader UserEnv m
+  , MonadError AppError m
+  , MonadTChan m
+  , MonadTCP m
+  ) => PromptEnv -> m Command
+prompt (PromptEnv prefix suppressed) = do
+  respTChan <- asks userEnvRespTchan
+  cmdTchan  <- asks userEnvCmdTChan
+  writeChannel respTChan $ Prompt prefix
+  if suppressed
+    then suppressEcho *> readCmd cmdTchan <* unsuppressEcho
+    else readCmd cmdTchan
 
 gamePrompt ::
   forall m.

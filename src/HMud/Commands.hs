@@ -1,5 +1,6 @@
 module HMud.Commands where
 
+import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.List (intersperse)
@@ -8,22 +9,10 @@ import qualified Data.Text as T
 
 import HMud.Errors
 import HMud.Room
-import HMud.Parser.Commands
-import HMud.SqliteLib (User(..), formatUser)
+import HMud.SqliteLib (formatUser)
 import HMud.State
 import HMud.Types
-  ( GameState(..)
-  , HasConnectionHandle(..)
-  , MonadDB(..)
-  , MonadGameState(..)
-  , MonadObjectLookup(..)
-  , MonadPlayer(..)
-  , MonadThread(..)
-  , RoomText(..)
-  , Response(..)
-  , UserEnv(..)
-  )
-import HMud.World
+import HMud.Types.Classes
 
 execCommand ::
   ( MonadReader UserEnv m
@@ -54,7 +43,7 @@ execGetUsers :: (MonadReader UserEnv m , MonadDB m) => m Response
 execGetUsers = do
   conn  <- asks getConnectionHandle
   users <- selectAllUsers conn
-  let usernames = userUsername <$> users
+  let usernames = view userUsername <$> users
       newlineSeperated = T.concat $ intersperse "\n" usernames ++ pure (T.pack "\r\n")
   return $ RespAnnounce newlineSeperated
 
@@ -95,14 +84,13 @@ execLogout ::
   , MonadError AppError m
   ) => m Response
 execLogout = do
-  (GameState activePlayers _ playerMap' itemMap) <- readState
+  gs <- readState
   eUser <- getUser
   case eUser of
     Left err -> throwError err
     Right user -> do
-      let userId = userUserId user
-          activePlayers' = removeUser userId activePlayers
-      setState $ GameState activePlayers' world playerMap' itemMap
+      let playerId = _playerPlayerId user
+      setState $ gs & gsActivePlayers %~ removeUser playerId
       return $ RespAnnounce "Logged Out"
 
 -- TODO: Gracefully shutdown server.
@@ -117,10 +105,10 @@ execSay ::
   , MonadError AppError m
   ) => Text -> m Response
 execSay msg = do
-  eUser <- getUser
-  case eUser of
+  ePlayer <- getUser
+  case ePlayer of
     Left err -> throwError err
-    Right user -> return $ RespSay (userUsername user) msg
+    Right user -> return $ RespSay (_playerName user) msg
 
 execMovePlayer ::
   ( MonadReader UserEnv m
@@ -129,20 +117,20 @@ execMovePlayer ::
   , MonadError AppError m
   ) => Direction -> m Response
 execMovePlayer dir = do
-  state <- readState
+  gs <- readState
   eCurrentRoom <- getUserLocation
-  eUser <- getUser
+  ePlayer <- getUser
 
-  case eUser of
+  case ePlayer of
     Left err -> throwError err
-    Right (User uid _ _) -> do
-      let eUidNewRid  = (,) <$> pure uid <*> destRoomId eCurrentRoom dir
+    Right player -> do
+      let uid = _playerPlayerId player
+          eUidNewRid  = (,) uid <$> destRoomId eCurrentRoom dir
       case eUidNewRid of
         Left NoSuchRoom -> return $ RespAnnounce "There is no path in that direction"
         Left err -> throwError err
         Right (_, newRid) -> do
-          let playerMap' = findAndSwapPlayer uid newRid (globalPlayerMap state)
-          setState $ replacePlayerMap state playerMap'
+          setState $ gs & gsPlayerMap %~ findAndSwapPlayer uid newRid
           return $ RespAnnounce "You have moved into a new room..."
 
 execLook ::
@@ -160,13 +148,13 @@ execLook = \case
   --  pure . RespAnnounce $ look object
   --Dir dir -> undefined
   _ -> do
-    globalState' <- readState
+    gs <- readState
     eRoom        <- getUserLocation
     eUser        <- getUser
     let res = do
-         uid <- userUserId <$> eUser
+         uid <- _playerPlayerId <$> eUser
          room <- eRoom
-         showRoom' uid room globalState'
+         showRoom' uid room gs
     case res of
       Left  err      -> throwError err
       Right roomText -> return . RespAnnounce $ getRoomText roomText
