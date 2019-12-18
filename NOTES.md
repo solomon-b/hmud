@@ -15,8 +15,7 @@ data ItemType =
   , _itemTypeId        :: ItemTypeId
   , _containerCapacity :: Nat
   , _weight            :: Nat
-  , _isEquippable      :: Bool
-  , _equipmentType     :: EquipmentType
+  , _equipmentType     :: Maybe EquipmentType
   , _movable           :: Bool
   , _description       :: Text
   }

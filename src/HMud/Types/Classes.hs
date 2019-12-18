@@ -5,16 +5,16 @@ import Control.Concurrent.STM
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Lens
 
 import Data.ByteString (ByteString)
 import Data.Text (Text)
-import qualified Data.Map.Strict as M
 
 import HMud.Errors
 import HMud.Types
 import qualified HMud.Socket as Socket
 import qualified HMud.SqliteLib as SQL
-import HMud.SqliteLib (User(..), UserId)
+import HMud.SqliteLib (Account(..), AccountId)
 
 --------------------
 --- Environments ---
@@ -35,7 +35,7 @@ data UserEnv =
           --, userEnvCmdTChan   :: TChan Command           -- Read Commands from the socket
           , userEnvCmdTChan   :: TChan (Either AppError Command) -- Read Commands from the socket
           , userEnvRespTchan  :: TChan Response          -- Write Responses to the socket
-          , userEnvUserId     :: TVar (Maybe UserId) -- Current User ID
+          , userEnvAccountId     :: TVar (Maybe AccountId) -- Current Account ID
           }
 
 ---------------------
@@ -69,12 +69,12 @@ instance HasSocketHandle Env where
 instance HasSocketHandle UserEnv where
   getSocketHandle = userEnvHandle
 
-class HasUserId env where
-  getUserIdTVar :: env -> TVar (Maybe UserId)
-instance HasUserId (TVar (Maybe UserId)) where
-  getUserIdTVar = id
-instance HasUserId UserEnv where
-  getUserIdTVar = userEnvUserId
+class HasAccountId env where
+  getAccountIdTVar :: env -> TVar (Maybe AccountId)
+instance HasAccountId (TVar (Maybe AccountId)) where
+  getAccountIdTVar = id
+instance HasAccountId UserEnv where
+  getAccountIdTVar = userEnvAccountId
 
 class Monad m => MonadThread m where
   getThread :: m ThreadId
@@ -131,14 +131,14 @@ instance MonadTCP IO where
   closeHandle'  = Socket.closeHandle
 
 class Monad m => MonadDB m where
-  insertUser     :: SQL.Handle -> User -> m User
-  selectUser     :: SQL.Handle -> Text -> m (Either AppError User)
-  selectAllUsers :: SQL.Handle -> m [User]
+  insertAccount     :: SQL.Handle -> Account -> m Account
+  selectAccount     :: SQL.Handle -> Text -> m (Either AppError Account)
+  selectAllAccounts :: SQL.Handle -> m [Account]
   insertPlayer   :: SQL.Handle -> Player -> m Player
 instance MonadIO m => MonadDB (ReaderT env m) where
-  insertUser handle user     = liftIO $ SQL.insertUser handle user
-  selectUser handle text     = liftIO $ SQL.selectUser handle text
-  selectAllUsers             = liftIO . SQL.selectAllUsers
+  insertAccount handle user     = liftIO $ SQL.insertAccount handle user
+  selectAccount handle text     = liftIO $ SQL.selectAccount handle text
+  selectAllAccounts             = liftIO . SQL.selectAllAccounts
   insertPlayer handle player = liftIO $ SQL.insertPlayer handle player
 
 --class MonadTCP m => MonadPrompt m where
@@ -162,30 +162,47 @@ instance (HasState env, MonadIO m) => MonadGameState (ReaderT env m) where
   setState    s = asks getState >>= (liftIO . atomically . flip writeTVar s)
   readState     = asks getState >>= (liftIO . atomically . readTVar)
 
-userIdToPlayer :: GameState -> UserId -> Maybe Player
-userIdToPlayer gs uid = do
-  playerId <- M.lookup uid $ _gsUserMap gs
-  player <- M.lookup playerId $ _gsActivePlayers gs
-  return player
-
 class Monad m => MonadPlayer m where
-  getUserId :: m (Maybe UserId)
-  getUser :: m (Either AppError Player)
-  setUser :: UserId -> m ()
-instance ( HasUserId env , HasState env , MonadIO m) => MonadPlayer (ReaderT env m) where
-  getUserId = do
-    tvar <- asks getUserIdTVar
-    liftIO . atomically $ readTVar tvar
-  getUser = do
-    gs <- readState
-    tvar <- asks getUserIdTVar
-    mUid <- liftIO . atomically $ readTVar tvar
-    case mUid of
-      Nothing -> return $ Left NotLoggedIn
-      Just uid -> return $ maybe (Left NoSuchUser) Right $ userIdToPlayer gs uid
-  setUser uid = do
-    tvar <- asks getUserIdTVar
+  getAccountId :: m AccountId
+  getPlayer :: m Player
+  setAccount :: AccountId -> m ()
+  isAccountLoggedIn :: Account -> m Bool
+  throwIfActiveSession :: m ()
+  isActiveSession :: m Bool
+
+instance
+  ( HasAccountId env
+  , HasState env
+  , HasConnectionHandle env
+  , MonadError AppError m
+  , MonadIO m
+  ) => MonadPlayer (ReaderT env m) where
+  getAccountId = do
+    tvar <- asks getAccountIdTVar
+    mAccountId <- liftIO . atomically $ readTVar tvar
+    maybe (throwError NotLoggedIn) pure mAccountId
+  getPlayer = do
+    conn <- asks getConnectionHandle
+    accId <- getAccountId
+    sqlResp <- liftIO $ SQL.selectPlayerByAccountId conn accId
+    case sqlResp of
+      Right player -> pure player
+      Left err -> throwError err
+  setAccount uid = do
+    tvar <- asks getAccountIdTVar
     liftIO . atomically $ writeTVar tvar (Just uid)
+  isAccountLoggedIn account = do
+    players <- _gsActivePlayers <$> readState
+    playerId <- maybe (throwError AccountHasNoPlayer) pure (account ^. accountPlayerId)
+    case players ^. at playerId of
+      Just _ -> pure True
+      Nothing -> pure False
+  throwIfActiveSession = getAccountId >> pure ()
+  isActiveSession = do
+    env <- ask
+    player <- runExceptT $ runReaderT getPlayer env
+    either (const $ pure False) (const $ pure False) player
+
 
 class MonadGameState m => MonadObjectLookup m where
   lookupObjectByName :: Text -> m Item

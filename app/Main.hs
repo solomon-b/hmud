@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Main where
 
@@ -6,7 +7,6 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM hiding (stateTVar)
 import Control.Monad (forever)
-import Control.Monad.Fail
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.IO.Unlift
@@ -33,14 +33,11 @@ newtype AppM env a = App { unAppM :: ReaderT env IO a}
            , MonadDB
            , MonadReader env
            , MonadGameState
-           , MonadPlayer
            , MonadTChan
            , MonadTCP
            , MonadThread
+           , MonadPlayer
            )
-
-instance MonadError AppError (AppM AppError) => MonadFail (AppM AppError) where
-  fail _ = throwError InvalidCommand
 
 userLoop ::
   ( MonadReader UserEnv m
@@ -50,23 +47,44 @@ userLoop ::
   ) => m ()
 userLoop = forever $ do
   env <- ask
-  eUser     <- getUser
+  activeSession <- isActiveSession
+
   pubTChan  <- asks userEnvPubTChan
   respTChan <- asks userEnvRespTchan
-  case eUser of
-    -- User is logged in:
-    Right _ -> do
-      response <- gamePrompt
+
+  if activeSession
+    then do
+      response <- runExceptT $ runReaderT gamePrompt env
       case response of
         Right (resp@(RespSay _ _)) -> writeChannel pubTChan resp
         Right resp -> writeChannel respTChan resp
         Left  err  -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
-    -- User is not logged in:
-    Left _ -> do
-      resp <- runExceptT $ runReaderT mainMenuPrompt env
-      case resp of
+    else do
+      response <- runExceptT $ runReaderT mainMenuPrompt env
+      case response of
         Right resp' -> writeChannel respTChan resp'
         Left  err   -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
+
+
+  --ePlayer   <- getPlayer
+  --accountId <- getAccountId
+  --isLoggedIn <- isAccountLoggedIn undefined
+  --pubTChan  <- asks userEnvPubTChan
+  --respTChan <- asks userEnvRespTchan
+  --case ePlayer of
+  --  -- User is logged in:
+  --  Right _ -> do
+  --    response <- gamePrompt
+  --    case response of
+  --      Right (resp@(RespSay _ _)) -> writeChannel pubTChan resp
+  --      Right resp -> writeChannel respTChan resp
+  --      Left  err  -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
+  --  -- User is not logged in:
+  --  Left _ -> do
+  --    resp <- runExceptT $ runReaderT mainMenuPrompt env
+  --    case resp of
+  --      Right resp' -> writeChannel respTChan resp'
+  --      Left  err   -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
 
 mainLoop :: AppM Env ()
 mainLoop = forever $ do

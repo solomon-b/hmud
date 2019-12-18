@@ -8,6 +8,8 @@ import qualified Data.Map.Strict as M
 import qualified Data.Text as T (concat, pack, append)
 import Data.Map.Strict (Map)
 import Database.SQLite.Simple
+import Database.SQLite.Simple.ToField
+import Database.SQLite.Simple.FromField
 import Data.Text (Text)
 
 import HMud.Errors
@@ -18,9 +20,9 @@ import qualified HMud.Socket as Socket
 ----------------
 
 data Command
-    = GetUsers
-    | GetUser Text
-    | AddUser User
+    = GetAccounts
+    | GetAccount Text
+    | AddAccount Account
     | Echo Text
     | Shutdown
     | Register
@@ -65,10 +67,10 @@ newtype ItemTypeId = ItemTypeId Integer deriving (Show, Eq, Ord)
 newtype ItemId = ItemId Integer deriving (Show, Eq, Ord)
 newtype InventoryId = InventoryId Integer deriving (Show, Eq, Ord)
 newtype RoomId = RoomId Integer deriving (Show, Eq, Ord)
+newtype AccountId = AccountId Integer deriving (Show, Eq, Ord)
 newtype PlayerId = PlayerId Integer deriving (Show, Eq, Ord)
 
 type ActivePlayers = Map PlayerId Player
-type UserMap       = Map UserId PlayerId
 type WorldMap      = Map RoomId Room
 type PlayerMap     = Map RoomId [PlayerId]
 type InventoryMap  = Map InventoryId [ItemId]
@@ -76,46 +78,49 @@ type ItemTypeMap   = Map ItemTypeId ItemType
 type ItemMap       = Map ItemId Item
 
 type TwoHanded = Bool
-data EquipmentType = Head | Torso | Legs | Feet | Hand TwoHanded | Arms | Finger
+data EquipmentType = Head | Torso | Legs | Feet | Hand TwoHanded | Arms | Finger | Trinket
   deriving Show
 
 data ItemType = ItemType
-  { _itemTypeName              :: Text
-  , _itemTypeItemTypeId        :: ItemTypeId
-  , _itemTypeContainerCapacity :: Integer
-  , _itemTypeWeight            :: Integer
-  , _itemTypeIsEquippable      :: Bool
-  , _itemTypeEquipmentType     :: EquipmentType
-  , _itemTypeMovable           :: Bool
-  , _itemTypeDescription       :: Text
+  { _itemTypeItemTypeId    :: ItemTypeId
+  , _itemTypeName          :: Text
+  , _itemTypeDescription   :: Text
+  , _itemTypeWeight        :: Integer
+  , _itemTypeEquipmentType :: EquipmentType
+  , _itemTypeMovable       :: Bool
+  , _itemContainerCapacity :: Integer
   } deriving Show
 
 data Item = Item
-  { _itemItemId       :: ItemId
-  , _itemItemTypeId   :: ItemTypeId
-  , _itemInventoryId  :: Maybe InventoryId
+  { _itemItemId      :: ItemId
+  , _itemItemTypeId  :: ItemTypeId
+  , _itemInventoryId :: InventoryId
   } deriving Show
 
-type UserId = Integer
-
-data User = User
-  { _userUserId   :: Integer
-  , _userUsername :: Text
-  , _userPassword :: Text
-  } deriving (Eq)
+data Account = Account
+  { _accountId   :: AccountId
+  , _accountEmail    :: Text
+  , _accountPassword :: Text
+  , _accountPlayerId :: Maybe (PlayerId)
+  } deriving Eq
 
 data Player = Player
   { _playerPlayerId    :: PlayerId
+  , _playerAccountId   :: AccountId
   , _playerName        :: Text
-  , _playerUserId      :: UserId
   , _playerDescription :: Text
-  , _playerInventoryId :: InventoryId
+  , _playerInventoryId :: Maybe InventoryId
   } deriving (Eq, Show)
 
+instance Show Account where
+  show = do
+    aId <- show . _accountId
+    aEmail <- show . _accountEmail
+    aPid <- show . _accountPlayerId
+    pure $ aId <> " " <> aEmail <> " " <> aPid
 
 data GameState = GameState
   { _gsActivePlayers :: ActivePlayers
-  , _gsUserMap       :: UserMap
   , _gsWorldMap      :: WorldMap
   , _gsPlayerMap     :: PlayerMap
   , _gsInventoryMap  :: InventoryMap
@@ -127,16 +132,25 @@ data GameState = GameState
 --- SQLite Transformers ---
 ---------------------------
 
-instance FromRow User where
-  fromRow = User <$> field <*> field <*> field
-instance ToRow User where
-  toRow (User _ username' password') = toRow (username', password')
-instance Show User where
-  show user = show (_userUsername user)
+instance FromRow Account where
+  fromRow = Account <$> (AccountId <$> field) <*> field <*> field <*> ((Just . PlayerId) <$> field)
+instance ToRow Account where
+  toRow (Account _ email password _) = toRow (email, password)
+
 instance FromRow Player where
-  fromRow = Player <$> (PlayerId <$> field) <*> field <*> field <*> field <*> (InventoryId <$> field)
+  fromRow = Player <$> (PlayerId <$> field) <*> (AccountId <$> field) <*> field <*> field <*> ((Just . InventoryId) <$> field)
 instance ToRow Player where
-  toRow (Player (PlayerId t1) t2 t3 t4 (InventoryId t5)) = toRow (t1, t2, t3, t4, t5)
+  toRow (Player (PlayerId t1) (AccountId t2) t3 t4 (Just (InventoryId t5))) = toRow (t1, t2, t3, t4, t5)
+  toRow (Player (PlayerId t1) (AccountId t2) t3 t4 Nothing) = toRow (t1, t2, t3, t4, SQLNull)
+
+--instance FromRow (Map Direction RoomId) where
+--  fromRow = undefined
+
+--instance FromRow Room where
+--  fromRow = Room <$> field <*> field <*> (RoomId <$> field) <*> field
+
+instance ToField (Map Direction RoomId) where
+  toField = SQLText . T.pack . show
 
 -------------------
 ---- The World ----
@@ -169,12 +183,12 @@ newtype RoomText = RoomText { getRoomText :: Text } deriving Show
 ------------------------
 
 data Response
-  = RespSay Username Msg
+  = RespSay Accountname Msg
   | RespHelp
   | RespLook Text
   | RespAnnounce Text
   | Prompt Text
-  | RespRegister Username
+  | RespRegister Accountname
   | RespPlayerCreated Text
   | RespShutdown
   | RespExit ThreadId Socket.Handle
@@ -218,7 +232,7 @@ instance TShow Response where
 
 
 type Msg = Text
-type Username = Text
+type Accountname = Text
 
 class TShow a where
   tshow :: a -> Text
@@ -247,5 +261,5 @@ makeLenses ''GameState
 makeLenses ''Room
 makeLenses ''Item
 makeLenses ''Player
-makeLenses ''User
+makeLenses ''Account
 makeLenses ''ItemType

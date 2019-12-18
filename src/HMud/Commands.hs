@@ -9,7 +9,7 @@ import qualified Data.Text as T
 
 import HMud.Errors
 import HMud.Room
-import HMud.SqliteLib (formatUser)
+import HMud.SqliteLib (formatAccount)
 import HMud.State
 import HMud.Types
 import HMud.Types.Classes
@@ -23,9 +23,9 @@ execCommand ::
   , MonadThread m
   ) => Command -> m Response
 execCommand = \case
-  GetUsers         -> execGetUsers
-  GetUser username -> execGetUser username
-  AddUser user     -> execAddUser user
+  GetAccounts      -> execGetUsers
+  GetAccount email -> execGetUser email
+  AddAccount user  -> execAddUser user
   Exit             -> execExit
   Logout           -> execLogout
   Shutdown         -> execShutdown
@@ -42,8 +42,8 @@ execHelp = pure RespHelp
 execGetUsers :: (MonadReader UserEnv m , MonadDB m) => m Response
 execGetUsers = do
   conn  <- asks getConnectionHandle
-  users <- selectAllUsers conn
-  let usernames = view userUsername <$> users
+  accounts <- selectAllAccounts conn
+  let usernames = view accountEmail <$> accounts
       newlineSeperated = T.concat $ intersperse "\n" usernames ++ pure (T.pack "\r\n")
   return $ RespAnnounce newlineSeperated
 
@@ -52,20 +52,20 @@ execGetUser ::
   , MonadDB m
   , MonadError AppError m
   ) => Text -> m Response
-execGetUser username = do
+execGetUser email = do
   conn <- asks getConnectionHandle
-  eUser <- selectUser conn (T.strip username)
+  eUser <- selectAccount conn (T.strip email)
   case eUser of
     Left err' -> throwError err'
-    Right user' -> return . RespAnnounce $ formatUser user'
+    Right user' -> return . RespAnnounce $ formatAccount user'
 
 execAddUser ::
   ( MonadReader UserEnv m
   , MonadDB m
-  ) => User -> m Response
+  ) => Account -> m Response
 execAddUser user = do
   conn <- asks getConnectionHandle
-  User _ username _ <- insertUser conn user
+  Account _ username _ _ <- insertAccount conn user
   return . RespAnnounce $ T.concat [username, " was added to the database"]
 
 execExit ::
@@ -81,17 +81,13 @@ execLogout ::
   ( MonadReader UserEnv m
   , MonadGameState m
   , MonadPlayer m
-  , MonadError AppError m
   ) => m Response
 execLogout = do
   gs <- readState
-  eUser <- getUser
-  case eUser of
-    Left err -> throwError err
-    Right user -> do
-      let playerId = _playerPlayerId user
-      setState $ gs & gsActivePlayers %~ removeUser playerId
-      return $ RespAnnounce "Logged Out"
+  player <- getPlayer
+  let playerId = _playerPlayerId player
+  setState $ gs & gsActivePlayers %~ removeUser playerId
+  pure $ RespAnnounce "Logged Out"
 
 -- TODO: Gracefully shutdown server.
 execShutdown :: (MonadError AppError m) => m Response
@@ -102,13 +98,10 @@ execWhois = RespAnnounce . whois <$> readState
 
 execSay ::
   ( MonadPlayer m
-  , MonadError AppError m
   ) => Text -> m Response
 execSay msg = do
-  ePlayer <- getUser
-  case ePlayer of
-    Left err -> throwError err
-    Right user -> return $ RespSay (_playerName user) msg
+  player <- getPlayer
+  pure $ RespSay (_playerName player) msg
 
 execMovePlayer ::
   ( MonadReader UserEnv m
@@ -118,20 +111,16 @@ execMovePlayer ::
   ) => Direction -> m Response
 execMovePlayer dir = do
   gs <- readState
-  eCurrentRoom <- getUserLocation
-  ePlayer <- getUser
-
-  case ePlayer of
+  eCurrentRoom <- getPlayerLocation
+  player <- getPlayer
+  let uid = _playerPlayerId player
+      eUidNewRid  = (,) uid <$> destRoomId eCurrentRoom dir
+  case eUidNewRid of
+    Left NoSuchRoom -> return $ RespAnnounce "There is no path in that direction"
     Left err -> throwError err
-    Right player -> do
-      let uid = _playerPlayerId player
-          eUidNewRid  = (,) uid <$> destRoomId eCurrentRoom dir
-      case eUidNewRid of
-        Left NoSuchRoom -> return $ RespAnnounce "There is no path in that direction"
-        Left err -> throwError err
-        Right (_, newRid) -> do
-          setState $ gs & gsPlayerMap %~ findAndSwapPlayer uid newRid
-          return $ RespAnnounce "You have moved into a new room..."
+    Right (_, newRid) -> do
+      setState $ gs & gsPlayerMap %~ findAndSwapPlayer uid newRid
+      return $ RespAnnounce "You have moved into a new room..."
 
 execLook ::
   ( MonadReader UserEnv m
@@ -143,18 +132,18 @@ execLook ::
 execLook = \case
   --Object name -> do
   --  object <- lookupObjectByName name
-  --  room <- getUserlocation
+  --  room <- getPlayerlocation
   --  guard $ object `isIn` room
   --  pure . RespAnnounce $ look object
   --Dir dir -> undefined
   _ -> do
     gs <- readState
-    eRoom        <- getUserLocation
-    eUser        <- getUser
-    let res = do
-         uid <- _playerPlayerId <$> eUser
-         room <- eRoom
-         showRoom' uid room gs
-    case res of
-      Left  err      -> throwError err
-      Right roomText -> return . RespAnnounce $ getRoomText roomText
+    eRoom <- getPlayerLocation
+    playerId <- _playerPlayerId <$> getPlayer
+    case eRoom of
+      Left err -> throwError err
+      Right room ->
+        RespAnnounce . getRoomText . packRoomText room <$> getUsersInRoom playerId (roomRoomId room) gs
+
+
+

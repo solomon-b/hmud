@@ -28,6 +28,7 @@ dependencies:
 - megaparsec
 - network
 - parsers
+- persistent
 - raw-strings-qq
 - sqlite-simple
 - stm
@@ -52,7 +53,6 @@ default-extensions:
 library:
   source-dirs: src
   exposed-modules:
-    - HMud.Account
     - HMud.Commands
     - HMud.Dispatch
     - HMud.Errors

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 0ebf05054872f57a7bb30c20f59ee7e949364bfdf15e616c33be4d775bf57091
+-- hash: 6a3b80eea173737a2b448cd3dbeb925cf275e05be2560d79b929153a6a1eb46d
 
 name:           hmud
 version:        0.1.0.0
@@ -26,7 +26,6 @@ source-repository head
 
 library
   exposed-modules:
-      HMud.Account
       HMud.Commands
       HMud.Dispatch
       HMud.Errors
@@ -56,6 +55,7 @@ library
     , mtl
     , network
     , parsers
+    , persistent
     , raw-strings-qq
     , sqlite-simple
     , stm
@@ -85,6 +85,7 @@ executable hmud
     , mtl
     , network
     , parsers
+    , persistent
     , raw-strings-qq
     , sqlite-simple
     , stm

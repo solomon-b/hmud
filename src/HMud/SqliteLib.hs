@@ -1,17 +1,18 @@
-{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE QuasiQuotes                #-}
 module HMud.SqliteLib
     ( Handle(..)
     , Config(..)
-    , User(..)
-    , UserId
+    , Account(..)
+    , AccountId
     , withHandle
     , createDatabase
-    , insertUser
-    , selectUser
-    , selectAllUsers
-    , formatUser
+    , insertAccount
+    , selectAccount
+    , selectAllAccounts
+    , formatAccount
     , insertPlayer
     , selectPlayer
+    , selectPlayerByAccountId
     , selectAllPlayers
     ) where
 
@@ -25,6 +26,61 @@ import Text.RawString.QQ
 
 import HMud.Errors
 import HMud.Types
+
+{-
+tachema:
+
+CREATE TABLE IF NOT EXISTS accounts(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email     TEXT UNIQUE NOT NULL,
+  password  TEXT NOT NULL,
+  FOREIGN KEY(player) REFERENCES(players.id)
+);
+
+CREATE TABLE IF NOT EXISTS players (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  FOREIGN KEY(account) REFERENCES(accounts.id),
+  name                 TEXT NOT NULL,
+  description          TEXT NOT NULL
+);
+
+CREATE TABLE inventory(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ownerId     INTEGER NOT NULL,
+  ownerType   TEXT NOT NULL,
+  capacity    INTEGER NOT NULL
+);
+
+CREATE TABLE items(
+  id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+  FOREIGN KEY(itemType)  REFERENCES(itemTypes.id) NOT NULL,
+  FOREIGN KEY(inventory) REFERENCES(inventory.id) NOT NULL,
+);
+
+CREATE TABLE itemTypes(
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  name              TEXT NOT NULL,
+  description       TEXT NOT NULL,
+  weight            INTEGER NOT NULL,
+  equipmentType     TEXT NOT NULL,
+  movable           BOOLEAN NOT NULL,
+  containerCapacity INTEGER NOT NULL
+);
+
+CREATE TABLE rooms(
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  description TEXT NOT NULL
+);
+
+CREATE TABLE RoomAdjacency(
+  PRIMARY KEY (startingRoom, endingRoom),
+  FOREIGN KEY(startingRoom) REFERENCES(rooms.id) NOT NULL,
+  FOREIGN KEY(endingRoom)   REFERENCES(rooms.id) NOT NULL,
+  direction                 TEXT NOT NULL
+);
+
+-}
 
 
 ----------------
@@ -48,7 +104,7 @@ withHandle config = bracket (newHandle config) closeHandle
 ---- Types ----
 ---------------
 
-type UserRow = (Null, Text, Text)
+type AccountRow = (Null, Text, Text)
 
 data DuplicateData = DuplicateData
     deriving (Eq, Show, Typeable)
@@ -59,40 +115,44 @@ instance Exception DuplicateData
 ---- Queries ----
 -----------------
 
-createUserTableQuery :: Query
-createUserTableQuery = [r|
-CREATE TABLE IF NOT EXISTS users
-    (id INTEGER PRIMARY KEY AUTOINCREMENT,
-     username TEXT UNIQUE,
-     password TEXT)
+createAccountTableQuery :: Query
+createAccountTableQuery = [r|
+CREATE TABLE IF NOT EXISTS accounts(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email     TEXT UNIQUE NOT NULL,
+  password  TEXT NOT NULL,
+  playerId  INTEGER,
+  FOREIGN KEY(playerId) REFERENCES players (id)
+)
 |]
 
-insertUserQuery :: Query
-insertUserQuery = [r|
-INSERT INTO users
- VALUES (NULL, ?, ?)
+insertAccountQuery :: Query
+insertAccountQuery = [r|
+INSERT INTO accounts
+ VALUES (NULL, ?, ?, NULL)
 |]
 
-selectAllUsersQuery :: Query
-selectAllUsersQuery = "SELECT * from users"
+selectAllAccountsQuery :: Query
+selectAllAccountsQuery = "SELECT * from accounts"
 
-selectUserQuery :: Query
-selectUserQuery = "SELECT * from users where username = ?"
+selectAccountQuery :: Query
+selectAccountQuery = "SELECT * from accounts where email = ?"
 
 createPlayerTableQuery :: Query
 createPlayerTableQuery = [r|
-CREATE TABLE IF NOT EXISTS players
-    (id INTEGER PRIMARY KEY AUTOINCREMENT,
-     name TEXT UNIQUE,
-     userId INTEGER,
-     description TEXT,
-     inventoryId INTEGER AUTOINCREMENT)
+CREATE TABLE IF NOT EXISTS players (
+  id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+  accountId              INTEGER,
+  name                   TEXT NOT NULL,
+  description            TEXT NOT NULL,
+  FOREIGN KEY(accountId) REFERENCES accounts (id)
+)
 |]
 
 insertPlayerQuery :: Query
 insertPlayerQuery = [r|
 INSERT INTO players
- VALUES (NULL, ?, ?, ?, NULL)
+ VALUES (NULL, ?, ?, ?)
 |]
 
 selectAllPlayersQuery :: Query
@@ -101,6 +161,9 @@ selectAllPlayersQuery = "SELECT * from players"
 selectPlayerQuery :: Query
 selectPlayerQuery = "SELECT * from players where name = ?"
 
+selectPlayerByAccountIdQuery :: Query
+selectPlayerByAccountIdQuery = "SELECT * from players where accountId = ?"
+
 -----------------------
 ---- Database CRUD ----
 -----------------------
@@ -108,54 +171,62 @@ selectPlayerQuery = "SELECT * from players where name = ?"
 createDatabase :: IO ()
 createDatabase = do
     conn <-  open "hmud.db"
-    execute_ conn createUserTableQuery
+    execute_ conn createAccountTableQuery
     execute_ conn createPlayerTableQuery
-    --execute conn insertUserQuery defUser
-    users <- query_ conn selectAllUsersQuery
-    mapM_ print (users :: [User])
+    --execute conn insertAccountQuery defAccount
+    users <- query_ conn selectAllAccountsQuery
+    mapM_ print (users :: [Account])
     SQLite.close conn
-    --where defUser :: UserRow
-    --      defUser = (Null, "solomon", "pass")
+    --where defAccount :: AccountRow
+    --      defAccount = (Null, "solomon", "pass")
 
 -- TODO: These pure functions should probably go somewhere else?
-formatUser :: User -> Text
-formatUser (User uid name _) =
-    Data.Text.concat [ "Player: "  , name, "\t"
-                     , "UID: "     , (pack . show) uid]
+formatAccount :: Account -> Text
+formatAccount (Account uid email _ playerId) =
+    Data.Text.concat [ "Email: ", email, "\t"
+                     , "UID: "  , (pack . show) uid, "\t"
+                     , "playerId: ", (pack . show) playerId]
 
 -----------------
 ---- Actions ----
 -----------------
--- TODO: Add additional User DB CRUD actions
 
-selectUser :: Handle -> Text -> IO (Either AppError User)
-selectUser (Handle conn) user = do
-    results <- query conn selectUserQuery (Only user)
+selectAccount :: Handle -> Text -> IO (Either AppError Account)
+selectAccount (Handle conn) name = do
+    results <- query conn selectAccountQuery (Only name)
     case results of
-        [] -> return $ Left NoSuchUser
-        [user'] -> return $ Right user'
+        [] -> return $ Left NoSuchAccount
+        [account] -> return $ Right account
         _ -> throwIO DuplicateData
 
-selectAllUsers :: Handle -> IO [User]
-selectAllUsers (Handle conn) = query_ conn selectAllUsersQuery
+selectAllAccounts :: Handle -> IO [Account]
+selectAllAccounts (Handle conn) = query_ conn selectAllAccountsQuery
 
-insertUser :: Handle -> User -> IO User
-insertUser (Handle conn) user = do
-    execute conn insertUserQuery user
-    return user
+insertAccount :: Handle -> Account -> IO Account
+insertAccount (Handle conn) account = do
+    execute conn insertAccountQuery account
+    return account
 
 selectPlayer :: Handle -> Text -> IO (Either AppError Player)
-selectPlayer (Handle conn) user = do
-    results <- query conn selectPlayerQuery (Only user)
+selectPlayer (Handle conn) name = do
+    results <- query conn selectPlayerQuery (Only name)
     case results of
         [] -> return $ Left NoSuchUser -- TODO: Add Player Specific Error Message
-        [user'] -> return $ Right user'
+        [player] -> return $ Right player
+        _ -> throwIO DuplicateData
+
+selectPlayerByAccountId :: Handle -> AccountId -> IO (Either AppError Player)
+selectPlayerByAccountId (Handle conn) (AccountId i) = do
+    results <- query conn selectPlayerByAccountIdQuery (Only i)
+    case results of
+        [] -> return $ Left NoSuchUser
+        [player] -> return $ Right player
         _ -> throwIO DuplicateData
 
 selectAllPlayers :: Handle -> IO [Player]
 selectAllPlayers (Handle conn) = query_ conn selectAllPlayersQuery
 
 insertPlayer :: Handle -> Player -> IO Player
-insertPlayer (Handle conn) user = do
-    execute conn insertPlayerQuery user
-    return user
+insertPlayer (Handle conn) player = do
+    execute conn insertPlayerQuery player
+    return player

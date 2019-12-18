@@ -4,6 +4,7 @@ module HMud.Room where
 
 import Control.Lens
 import Control.Monad.Reader
+import Control.Monad.Except
 import Data.List (intercalate)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -26,30 +27,27 @@ destRoomId eRoom dir = do
   room <- eRoom
   maybeToEither NoSuchRoom (roomAdjacent room M.!? dir)
 
-getUserLocation ::
+getPlayerLocation ::
   ( MonadReader UserEnv m
   , MonadGameState m
   , MonadPlayer m
   ) => m (Either AppError Room)
-getUserLocation = do
+getPlayerLocation = do
   gs <- readState
-  ePlayer <- getUser
-  case ePlayer of
+  player <- getPlayer
+  case findPlayer (player ^. playerPlayerId) (gs ^. gsPlayerMap) of
     Left err -> return $ Left err
-    Right player ->
-      case findPlayer (player ^. playerPlayerId) (gs ^. gsPlayerMap) of
-        Left err -> return $ Left err
-        Right (rid, _) ->
-          return . Right $ world M.! rid
+    Right (rid, _) ->
+      return . Right $ world M.! rid
 
-getUsersInRoom :: PlayerId -> RoomId -> GameState -> Either AppError [Player]
+getUsersInRoom :: MonadError AppError m => PlayerId -> RoomId -> GameState -> m [Player]
 getUsersInRoom uid rid gs = do
-  uids <- gs ^. gsPlayerMap . at rid . to (maybe (Left NoSuchRoom) Right)
+  uids <- gs ^. gsPlayerMap . at rid . to (maybe (throwError NoSuchRoom) pure)
   let players :: [Maybe Player]
       players = fmap (\playerId -> gs ^. gsActivePlayers . at playerId) uids
   pure $ filter (\player -> player ^. playerPlayerId == uid) (players ^.. traversed . traversed)
 
-showRoom' :: PlayerId -> Room -> GameState -> Either AppError RoomText
+showRoom' :: MonadError AppError m => PlayerId -> Room -> GameState -> m RoomText
 showRoom' uid room state =
   packRoomText room <$> getUsersInRoom uid (roomRoomId room) state
 
