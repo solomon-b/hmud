@@ -21,6 +21,8 @@ mainMenuPrompt ::
   , MonadDB m
   , MonadError AppError m
   , MonadTCP m
+  , MonadIO m
+  , MonadGameState m
   ) => m Response
 mainMenuPrompt = do
   respTChan <- asks userEnvRespTchan
@@ -42,20 +44,26 @@ loginPrompt ::
   , MonadPlayer m
   , MonadError AppError m
   , MonadTCP m
+  , MonadIO m
+  , MonadGameState m
   ) => m Response
 loginPrompt = do
+  active <- _gsActiveAccounts <$> readState
+  liftIO $ print active
   throwIfThreadInActiveSession
   users    <- selectAllAccounts =<< asks getConnectionHandle
   username <- guardWord =<< prompt (PromptEnv "Login: " False)
   password <- guardWord =<< prompt (PromptEnv "Password: " True)
-  account  <- verifyLogin username password users
+  account  <- verifyCredentials username password users
   throwIfAccountInActiveSession account
   login account
 
-verifyLogin :: MonadError AppError m => Text -> Text -> [Account] -> m Account
-verifyLogin email password accounts = do
-      user <- maybe (throwError $ SessionErr EmailNotRegistered) pure $ find (\account -> _accountEmail account == email) accounts
-      if password == (_accountPassword user)
+verifyCredentials :: MonadError AppError m => Text -> Text -> [Account] -> m Account
+verifyCredentials email password accounts = do
+      user <- maybe (throwError $ SessionErr EmailNotRegistered)
+                    pure
+                    (find (\account -> _accountEmail account == email) accounts)
+      if password == _accountPassword user
         then pure user
         else throwError $ SessionErr InvalidPassword
 

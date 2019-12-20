@@ -214,7 +214,7 @@ instance
   throwIfAccountInActiveSession account = do
     let idx = account ^. accountId
     accountIds <- _gsActiveAccounts <$> readState
-    maybe (throwError $ SessionErr AccountAlreadyActive) (const $ pure ()) (find (== idx) accountIds)
+    maybe (pure ()) (const $ throwError $ SessionErr AccountAlreadyActive) (find (== idx) accountIds)
   throwIfThreadInActiveSession = do
     tvar <- asks getAccountIdTVar
     mAccountId <- liftIO . atomically $ readTVar tvar
