@@ -14,7 +14,6 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Data.Map.Strict as M
 import Network.Socket
 
-import HMud.Errors
 import HMud.Dispatch
 import HMud.Prompts
 import qualified HMud.Socket as Socket
@@ -36,22 +35,23 @@ newtype AppM env a = App { unAppM :: ReaderT env IO a}
            , MonadTChan
            , MonadTCP
            , MonadThread
-           , MonadPlayer
            )
 
 userLoop ::
   ( MonadReader UserEnv m
-  , MonadUnliftIO m
+  , MonadIO m
   , MonadTChan m
-  , MonadPlayer m
   ) => m ()
 userLoop = forever $ do
   env <- ask
-  activeSession <- isActiveSession
+  activeSession <- do
+    res <- runExceptT $ runReaderT isActiveSession env
+    case res of
+      Left _ -> pure False
+      Right res' -> pure res'
 
   pubTChan  <- asks userEnvPubTChan
   respTChan <- asks userEnvRespTchan
-
   if activeSession
     then do
       response <- runExceptT $ runReaderT gamePrompt env
@@ -64,27 +64,6 @@ userLoop = forever $ do
       case response of
         Right resp' -> writeChannel respTChan resp'
         Left  err   -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
-
-
-  --ePlayer   <- getPlayer
-  --accountId <- getAccountId
-  --isLoggedIn <- isAccountLoggedIn undefined
-  --pubTChan  <- asks userEnvPubTChan
-  --respTChan <- asks userEnvRespTchan
-  --case ePlayer of
-  --  -- User is logged in:
-  --  Right _ -> do
-  --    response <- gamePrompt
-  --    case response of
-  --      Right (resp@(RespSay _ _)) -> writeChannel pubTChan resp
-  --      Right resp -> writeChannel respTChan resp
-  --      Left  err  -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
-  --  -- User is not logged in:
-  --  Left _ -> do
-  --    resp <- runExceptT $ runReaderT mainMenuPrompt env
-  --    case resp of
-  --      Right resp' -> writeChannel respTChan resp'
-  --      Left  err   -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
 
 mainLoop :: AppM Env ()
 mainLoop = forever $ do
@@ -123,7 +102,7 @@ launchApp sqlC sockC env =
 
 main :: IO ()
 main = withSocketsDo $ do
-  state    <- atomically $ newTVar (GameState M.empty M.empty world playerMap M.empty M.empty M.empty)
+  state    <- atomically $ newTVar (GameState [] M.empty world playerMap M.empty M.empty M.empty)
   wChannel <- newTChanIO
   let env = Env state wChannel
   launchApp dBConfig socketConfig env

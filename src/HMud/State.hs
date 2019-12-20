@@ -46,7 +46,7 @@ addPlayer uid =
 lookupPlayer :: PlayerId -> ActivePlayers -> Either AppError Player
 lookupPlayer uid activePlayers =
   let player = M.lookup uid activePlayers
-  in maybe (Left NoSuchUser) Right player
+  in maybe (Left $ GameErr NoSuchPlayer) Right player
 
 swapPlayer :: PlayerId -> RoomId -> RoomId -> PlayerMap -> PlayerMap
 swapPlayer uid rid rid' =
@@ -62,7 +62,7 @@ findPlayer uid playerMap' =
       g (_, uid') = uid == uid'
       player :: Maybe (RoomId, PlayerId)
       player = find g players
-  in maybeToEither UserNotInPlayerMap player
+  in maybeToEither (GameErr NoSuchPlayer) player
 
 findAndSwapPlayer :: PlayerId -> RoomId -> PlayerMap -> PlayerMap
 findAndSwapPlayer uid rid playerMap' =

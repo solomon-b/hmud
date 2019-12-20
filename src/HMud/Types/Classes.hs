@@ -8,7 +8,9 @@ import Control.Monad.State
 import Control.Lens
 
 import Data.ByteString (ByteString)
+import Data.List (find)
 import Data.Text (Text)
+import qualified Data.Text as T
 
 import HMud.Errors
 import HMud.Types
@@ -132,7 +134,7 @@ instance MonadTCP IO where
 
 class Monad m => MonadDB m where
   insertAccount     :: SQL.Handle -> Account -> m Account
-  selectAccount     :: SQL.Handle -> Text -> m (Either AppError Account)
+  selectAccount     :: SQL.Handle -> Text -> m (Maybe Account)
   selectAllAccounts :: SQL.Handle -> m [Account]
   insertPlayer   :: SQL.Handle -> Player -> m Player
 instance MonadIO m => MonadDB (ReaderT env m) where
@@ -164,10 +166,12 @@ instance (HasState env, MonadIO m) => MonadGameState (ReaderT env m) where
 
 class Monad m => MonadPlayer m where
   getAccountId :: m AccountId
+  setAccountId :: AccountId -> m ()
   getPlayer :: m Player
-  setAccount :: AccountId -> m ()
-  isAccountLoggedIn :: Account -> m Bool
-  throwIfActiveSession :: m ()
+  login :: Account -> m Response
+  logout :: Account -> m ()
+  throwIfAccountInActiveSession :: Account -> m ()
+  throwIfThreadInActiveSession :: m ()
   isActiveSession :: m Bool
 
 instance
@@ -180,29 +184,45 @@ instance
   getAccountId = do
     tvar <- asks getAccountIdTVar
     mAccountId <- liftIO . atomically $ readTVar tvar
-    maybe (throwError NotLoggedIn) pure mAccountId
+    maybe (throwError $ SessionErr NoActiveSession) pure mAccountId
+  setAccountId uid = do
+    tvar <- asks getAccountIdTVar
+    liftIO . atomically $ writeTVar tvar (Just uid)
   getPlayer = do
     conn <- asks getConnectionHandle
     accId <- getAccountId
     sqlResp <- liftIO $ SQL.selectPlayerByAccountId conn accId
     case sqlResp of
-      Right player -> pure player
-      Left err -> throwError err
-  setAccount uid = do
+      Just player -> pure player
+      Nothing -> throwError $ SessionErr NoAccountPlayer
+  login account = do
+    let uid = account ^. accountId
+    -- Set accountId in UserEnv
+    setAccountId uid
+    -- Add AccountId to ActiveAccounts List
+    modifyState $ gsActiveAccounts %~ (:) uid
+    -- Get the Player associated with the account
+    player <- getPlayer
+    -- Get the Player ID
+    let playerId = (player ^. playerPlayerId)
+    -- Add the Player to the ActivePlayers Map
+    modifyState $ gsActivePlayers . at playerId ?~ player
+    -- Add the Player to the world in room 1
+    modifyState $ gsPlayerMap . at (RoomId 1) . non mempty <>~ pure playerId
+    pure . RespAnnounce $ _accountEmail account `T.append` " Logged In"
+  logout = error "Unimplemented"
+  throwIfAccountInActiveSession account = do
+    let idx = account ^. accountId
+    accountIds <- _gsActiveAccounts <$> readState
+    maybe (throwError $ SessionErr AccountAlreadyActive) (const $ pure ()) (find (== idx) accountIds)
+  throwIfThreadInActiveSession = do
     tvar <- asks getAccountIdTVar
-    liftIO . atomically $ writeTVar tvar (Just uid)
-  isAccountLoggedIn account = do
-    players <- _gsActivePlayers <$> readState
-    playerId <- maybe (throwError AccountHasNoPlayer) pure (account ^. accountPlayerId)
-    case players ^. at playerId of
-      Just _ -> pure True
-      Nothing -> pure False
-  throwIfActiveSession = getAccountId >> pure ()
+    mAccountId <- liftIO . atomically $ readTVar tvar
+    maybe (pure ()) (const $ throwError $ SessionErr ActiveSession) mAccountId
   isActiveSession = do
     env <- ask
     player <- runExceptT $ runReaderT getPlayer env
-    either (const $ pure False) (const $ pure False) player
-
+    either (const $ pure False) (const $ pure True) player
 
 class MonadGameState m => MonadObjectLookup m where
   lookupObjectByName :: Text -> m Item

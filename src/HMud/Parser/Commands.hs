@@ -154,19 +154,19 @@ parserRaw = Raw <$> phrase
 --- Parse Execution ---
 -----------------------
 
-runParse' :: MonadError AppError m => Parser a -> ByteString -> m a
+runParse' :: MonadError ParserError m => Parser a -> ByteString -> m a
 runParse' parser bs =
     let parsed = runParser parser mempty bs
     in case parsed of
         Right cmd -> return cmd
-        Left _   -> throwError InvalidCommand
+        Left _   -> throwError BadParse
 
-runParse :: MonadError AppError m => ByteString -> m Command
+runParse :: MonadError ParserError m => ByteString -> m Command
 runParse = runParse' (try pInGame <|> try pMainMenu <|> parserRaw <|> parserSuppress)
 
-runWordParse :: MonadError AppError m => ByteString -> m Text
+runWordParse :: MonadError ParserError m => ByteString -> m Text
 runWordParse = runParse' phrase
 
-resultToEither :: Either a b -> Either AppError b
-resultToEither (Left _) = Left InvalidCommand
+resultToEither :: Either a b -> Either ParserError b
+resultToEither (Left _) = Left BadParse
 resultToEither (Right a) = Right a

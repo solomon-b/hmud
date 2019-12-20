@@ -25,7 +25,7 @@ import HMud.World
 destRoomId :: Either AppError Room -> Direction -> Either AppError RoomId
 destRoomId eRoom dir = do
   room <- eRoom
-  maybeToEither NoSuchRoom (roomAdjacent room M.!? dir)
+  maybeToEither (GameErr NoSuchRoom) (roomAdjacent room M.!? dir)
 
 getPlayerLocation ::
   ( MonadReader UserEnv m
@@ -42,7 +42,7 @@ getPlayerLocation = do
 
 getUsersInRoom :: MonadError AppError m => PlayerId -> RoomId -> GameState -> m [Player]
 getUsersInRoom uid rid gs = do
-  uids <- gs ^. gsPlayerMap . at rid . to (maybe (throwError NoSuchRoom) pure)
+  uids <- gs ^. gsPlayerMap . at rid . to (maybe (throwError $ GameErr NoSuchRoom) pure)
   let players :: [Maybe Player]
       players = fmap (\playerId -> gs ^. gsActivePlayers . at playerId) uids
   pure $ filter (\player -> player ^. playerPlayerId == uid) (players ^.. traversed . traversed)

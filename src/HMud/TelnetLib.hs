@@ -64,7 +64,7 @@ toTelnetWord w
     | otherwise            = Word w
 
 charToBuffer :: Word8 -> Buffer
-charToBuffer w 
+charToBuffer w
     | w <= 255 = Buffer . Just . BS.singleton $ fromIntegral w
     | otherwise = mempty
 

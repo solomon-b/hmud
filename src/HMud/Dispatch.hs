@@ -63,26 +63,30 @@ cmdLoopInner handle cmdChan = forever $ do
   let cmds = runExcept $ parseRawMsg s rawMsg
   case cmds of
     Right (cmd, s')      -> writeChannel cmdChan (Right cmd) >> put s'
-    Left IgnoredResponse -> return ()
-    Left e               -> writeChannel cmdChan (Left e)
+    Left NoCommand -> return ()
+    Left InvalidCommand -> writeChannel cmdChan (Left $ InputErr InvalidCommand)
   where
-    parseRawMsg :: ParseState -> ByteString -> Except AppError (Command, ParseState)
+    parseRawMsg :: ParseState -> ByteString -> Except InputError (Command, ParseState)
     parseRawMsg state rawMsg =
       case (unBuffer . processStream) rawMsg of
-        Nothing  -> throwError IgnoredResponse
+        Nothing  -> throwError NoCommand
         Just msg ->
           case state of
             Normal -> do
-              cmd <- runParse msg
+              cmd <- runExceptT $ runParse msg
               case cmd of
-                Login -> return (Login, Multiline (Succ Zero))
-                Register -> return (Register, Multiline (Succ $ Succ Zero))
-                _ ->  return (cmd, Normal)
+                Right Login -> return (Login, Multiline (Succ Zero))
+                Right Register -> return (Register, Multiline (Succ $ Succ Zero))
+                Right cmd' ->  return (cmd', Normal)
+                Left BadParse -> throwError InvalidCommand
             Multiline cs -> do
-              str <- runWordParse rawMsg
-              if isZero cs
-              then return (Word str, Normal)
-              else return (Word str, Multiline $ decr cs)
+              str <- runExceptT $ runWordParse rawMsg
+              case str of
+                Right str' ->
+                  if isZero cs
+                    then return (Word str', Normal)
+                    else return (Word str', Multiline $ decr cs)
+                Left BadParse -> throwError InvalidCommand
 
 dispatchLoop ::
   forall m.

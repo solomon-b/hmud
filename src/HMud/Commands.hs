@@ -34,7 +34,7 @@ execCommand = \case
   Move dir         -> execMovePlayer dir
   Look target      -> execLook target
   Help             -> execHelp
-  _                -> throwError InvalidCommand
+  _                -> throwError $ InputErr InvalidCommand
 
 execHelp :: Monad m => m Response
 execHelp = pure RespHelp
@@ -54,10 +54,10 @@ execGetUser ::
   ) => Text -> m Response
 execGetUser email = do
   conn <- asks getConnectionHandle
-  eUser <- selectAccount conn (T.strip email)
-  case eUser of
-    Left err' -> throwError err'
-    Right user' -> return . RespAnnounce $ formatAccount user'
+  mAccount <- selectAccount conn (T.strip email)
+  case mAccount of
+    Nothing -> throwError $ SessionErr EmailNotRegistered
+    Just account -> return . RespAnnounce $ formatAccount account
 
 execAddUser ::
   ( MonadReader UserEnv m
@@ -116,7 +116,7 @@ execMovePlayer dir = do
   let uid = _playerPlayerId player
       eUidNewRid  = (,) uid <$> destRoomId eCurrentRoom dir
   case eUidNewRid of
-    Left NoSuchRoom -> return $ RespAnnounce "There is no path in that direction"
+    Left (GameErr NoSuchRoom) -> return $ RespAnnounce "There is no path in that direction"
     Left err -> throwError err
     Right (_, newRid) -> do
       setState $ gs & gsPlayerMap %~ findAndSwapPlayer uid newRid

@@ -9,7 +9,6 @@ import qualified Data.Text as T (concat, pack, append)
 import Data.Map.Strict (Map)
 import Database.SQLite.Simple
 import Database.SQLite.Simple.ToField
-import Database.SQLite.Simple.FromField
 import Data.Text (Text)
 
 import HMud.Errors
@@ -98,10 +97,10 @@ data Item = Item
   } deriving Show
 
 data Account = Account
-  { _accountId   :: AccountId
+  { _accountId       :: AccountId
   , _accountEmail    :: Text
   , _accountPassword :: Text
-  , _accountPlayerId :: Maybe (PlayerId)
+  , _accountPlayerId :: Maybe PlayerId
   } deriving Eq
 
 data Player = Player
@@ -120,12 +119,13 @@ instance Show Account where
     pure $ aId <> " " <> aEmail <> " " <> aPid
 
 data GameState = GameState
-  { _gsActivePlayers :: ActivePlayers
-  , _gsWorldMap      :: WorldMap
-  , _gsPlayerMap     :: PlayerMap
-  , _gsInventoryMap  :: InventoryMap
-  , _gsItemTypeMap   :: ItemTypeMap
-  , _gsItemMap       :: ItemMap
+  { _gsActiveAccounts :: [AccountId]
+  , _gsActivePlayers  :: ActivePlayers
+  , _gsWorldMap       :: WorldMap
+  , _gsPlayerMap      :: PlayerMap
+  , _gsInventoryMap   :: InventoryMap
+  , _gsItemTypeMap    :: ItemTypeMap
+  , _gsItemMap        :: ItemMap
   } deriving Show
 
 ---------------------------
@@ -133,12 +133,21 @@ data GameState = GameState
 ---------------------------
 
 instance FromRow Account where
-  fromRow = Account <$> (AccountId <$> field) <*> field <*> field <*> ((Just . PlayerId) <$> field)
+  fromRow = Account <$> (AccountId <$> field)
+                    <*> field
+                    <*> field
+                    <*> ((fmap . fmap) PlayerId field)
+
 instance ToRow Account where
   toRow (Account _ email password _) = toRow (email, password)
 
 instance FromRow Player where
-  fromRow = Player <$> (PlayerId <$> field) <*> (AccountId <$> field) <*> field <*> field <*> ((Just . InventoryId) <$> field)
+  fromRow = Player <$> (PlayerId <$> field)
+                   <*> (AccountId <$> field)
+                   <*> field
+                   <*> field
+                   <*> ((fmap . fmap) InventoryId field)
+
 instance ToRow Player where
   toRow (Player (PlayerId t1) (AccountId t2) t3 t4 (Just (InventoryId t5))) = toRow (t1, t2, t3, t4, t5)
   toRow (Player (PlayerId t1) (AccountId t2) t3 t4 Nothing) = toRow (t1, t2, t3, t4, SQLNull)

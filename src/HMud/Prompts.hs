@@ -7,8 +7,6 @@ import Data.List (find)
 import qualified Data.Text as T
 import Data.Text (Text)
 
-import Control.Lens
-
 import HMud.Commands
 import HMud.Dispatch
 import HMud.Errors
@@ -18,7 +16,6 @@ import HMud.Types.Classes
 mainMenuPrompt ::
   ( MonadReader UserEnv m
   , MonadThread m
-  , MonadGameState m
   , MonadTChan m
   , MonadPlayer m
   , MonadDB m
@@ -36,47 +33,31 @@ mainMenuPrompt = do
       pure $ RespExit threadId socket
     Login -> loginPrompt
     Register -> registerPrompt
-    _ -> throwError InvalidCommand
+    _ -> throwError $ InputErr InvalidCommand
 
 loginPrompt ::
   ( MonadReader UserEnv m
   , MonadDB m
-  , MonadGameState m
   , MonadTChan m
   , MonadPlayer m
   , MonadError AppError m
   , MonadTCP m
   ) => m Response
 loginPrompt = do
-  throwIfActiveSession
+  throwIfThreadInActiveSession
+  users    <- selectAllAccounts =<< asks getConnectionHandle
+  username <- guardWord =<< prompt (PromptEnv "Login: " False)
+  password <- guardWord =<< prompt (PromptEnv "Password: " True)
+  account  <- verifyLogin username password users
+  throwIfAccountInActiveSession account
+  login account
 
-  handle <- asks getConnectionHandle
-  users <- selectAllAccounts handle
-
-  username <- prompt (PromptEnv "Login: " False)
-  password <- prompt (PromptEnv "Password: " True)
-
-  account <-  verifyLogin username password users
-  isLoggedIn <- isAccountLoggedIn account
-
-  if isLoggedIn
-    then throwError AlreadyLoggedIn
-    else do
-      gs <- readState
-      setAccount $ account ^. accountId
-      player <- getPlayer
-      let playerId = (player ^. playerPlayerId)
-      setState $ gs & gsActivePlayers . at playerId   ?~ player
-      setState $ gs & gsPlayerMap     . at (RoomId 1) . non mempty <>~ pure playerId
-      pure . RespAnnounce $ _accountEmail account `T.append` " Logged In"
-
-verifyLogin :: MonadError AppError m => Command -> Command -> [Account] -> m Account
-verifyLogin (Word email) (Word password) accounts = do
-      user <- maybe (throwError NoSuchUser) pure $ find (\account -> _accountEmail account == email) accounts
+verifyLogin :: MonadError AppError m => Text -> Text -> [Account] -> m Account
+verifyLogin email password accounts = do
+      user <- maybe (throwError $ SessionErr EmailNotRegistered) pure $ find (\account -> _accountEmail account == email) accounts
       if password == (_accountPassword user)
         then pure user
-        else throwError InvalidPassword
-verifyLogin _ _ _ = throwError InvalidCommand
+        else throwError $ SessionErr InvalidPassword
 
 registerPrompt ::
   ( MonadReader UserEnv m
@@ -98,12 +79,9 @@ registerPrompt = do
         then do
           void $ insertAccount handle (Account (AccountId 0) email password1 Nothing)
           pure $ RespRegister email
-        else throwError PasswordsDontMatch
-    else throwError EmailAlreadyRegistered
+        else throwError $ SessionErr PasswordsDontMatch
+    else throwError $ SessionErr EmailAlreadyRegistered
   where
-    guardWord :: MonadError AppError m => Command -> m Text
-    guardWord (Word x) = pure x
-    guardWord _ = throwError InvalidCommand
     isEmailRegistered :: [Account] -> Text -> Bool
     isEmailRegistered users email =
       let emails' = _accountEmail <$> users
@@ -126,10 +104,6 @@ createPlayerPrompt = do
   description <- guardWord =<< prompt (PromptEnv "Description: " False)
   createPlayer userId name description
   pure $ RespPlayerCreated name
-  where
-    guardWord :: MonadError AppError m => Command -> m Text
-    guardWord (Word x) = pure x
-    guardWord _ = throwError InvalidCommand
 
 createPlayer ::
   ( MonadReader UserEnv m
@@ -183,3 +157,7 @@ readCmd tchan = do
   case resp of
     Right cmd -> return cmd
     Left err -> throwError err
+
+guardWord :: MonadError AppError m => Command -> m Text
+guardWord (Word x) = pure x
+guardWord _ = throwError $ InputErr InvalidCommand

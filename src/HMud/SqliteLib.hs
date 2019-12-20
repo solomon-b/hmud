@@ -21,10 +21,8 @@ import Data.Text (Text, concat, pack)
 import Data.Typeable (Typeable)
 import Database.SQLite.Simple
 import qualified Database.SQLite.Simple as SQLite
-import Database.SQLite.Simple.Types
 import Text.RawString.QQ
 
-import HMud.Errors
 import HMud.Types
 
 {-
@@ -104,7 +102,7 @@ withHandle config = bracket (newHandle config) closeHandle
 ---- Types ----
 ---------------
 
-type AccountRow = (Null, Text, Text)
+--type AccountRow = (Null, Text, Text)
 
 data DuplicateData = DuplicateData
     deriving (Eq, Show, Typeable)
@@ -191,12 +189,12 @@ formatAccount (Account uid email _ playerId) =
 ---- Actions ----
 -----------------
 
-selectAccount :: Handle -> Text -> IO (Either AppError Account)
+selectAccount :: Handle -> Text -> IO (Maybe Account)
 selectAccount (Handle conn) name = do
     results <- query conn selectAccountQuery (Only name)
     case results of
-        [] -> return $ Left NoSuchAccount
-        [account] -> return $ Right account
+        [] -> return Nothing
+        [account] -> return $ Just account
         _ -> throwIO DuplicateData
 
 selectAllAccounts :: Handle -> IO [Account]
@@ -207,20 +205,20 @@ insertAccount (Handle conn) account = do
     execute conn insertAccountQuery account
     return account
 
-selectPlayer :: Handle -> Text -> IO (Either AppError Player)
+selectPlayer :: Handle -> Text -> IO (Maybe Player)
 selectPlayer (Handle conn) name = do
     results <- query conn selectPlayerQuery (Only name)
     case results of
-        [] -> return $ Left NoSuchUser -- TODO: Add Player Specific Error Message
-        [player] -> return $ Right player
+        [] -> return Nothing
+        [player] -> return $ Just player
         _ -> throwIO DuplicateData
 
-selectPlayerByAccountId :: Handle -> AccountId -> IO (Either AppError Player)
+selectPlayerByAccountId :: Handle -> AccountId -> IO (Maybe Player)
 selectPlayerByAccountId (Handle conn) (AccountId i) = do
     results <- query conn selectPlayerByAccountIdQuery (Only i)
     case results of
-        [] -> return $ Left NoSuchUser
-        [player] -> return $ Right player
+        [] -> return Nothing
+        [player] -> return $ Just player
         _ -> throwIO DuplicateData
 
 selectAllPlayers :: Handle -> IO [Player]
