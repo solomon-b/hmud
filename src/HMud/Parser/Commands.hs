@@ -18,7 +18,8 @@ import HMud.Types
 {-
 Main Menu Commands
 (l)ogin
-(r)egister
+(r)egister account
+(c)reate player
 (e)exit
 
 In Game User Commands
@@ -54,11 +55,14 @@ pLogin = (rword "login" <|> rword "l") $> Login
 pRegister :: Parser Command
 pRegister = (rword "register" <|> rword "r") $> Register
 
+pCreate :: Parser Command
+pCreate = (rword "create" <|> rword "c") $> Create
+
 pExit :: Parser Command
 pExit = (rword "exit" <|> rword "e") $> Exit
 
 pMainMenu :: Parser Command
-pMainMenu = pLogin <|> pRegister <|> pExit
+pMainMenu = pLogin <|> pRegister <|> pCreate <|> pExit
 
 ------------------
 --- Directions ---

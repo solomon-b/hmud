@@ -77,6 +77,7 @@ cmdLoopInner handle cmdChan = forever $ do
               case cmd of
                 Right Login -> return (Login, Multiline (Succ Zero))
                 Right Register -> return (Register, Multiline (Succ $ Succ Zero))
+                Right Create -> return (Create, Multiline (Succ $ Succ Zero))
                 Right cmd' ->  return (cmd', Normal)
                 Left BadParse -> throwError InvalidCommand
             Multiline cs -> do

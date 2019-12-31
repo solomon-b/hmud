@@ -168,6 +168,7 @@ class Monad m => MonadPlayer m where
   getAccountId :: m AccountId
   setAccountId :: AccountId -> m ()
   getPlayer :: m Player
+  createPlayer :: AccountId -> Text -> Text -> m Response
   login :: Account -> m Response
   logout :: Account -> m ()
   throwIfAccountInActiveSession :: Account -> m ()
@@ -195,6 +196,10 @@ instance
     case sqlResp of
       Just player -> pure player
       Nothing -> throwError $ SessionErr NoAccountPlayer
+  createPlayer uid name desc = do
+    handle <- asks getConnectionHandle
+    void . insertPlayer handle $ Player (PlayerId 0) uid name desc (InventoryId 0)
+    pure $ RespPlayerCreated name
   login account = do
     let uid = account ^. accountId
     -- Set accountId in UserEnv

@@ -24,7 +24,8 @@ data Command
     | AddAccount Account
     | Echo Text
     | Shutdown
-    | Register
+    | Register -- Account
+    | Create   -- Player
     | Raw Text
     | Look Target
     | Login

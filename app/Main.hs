@@ -62,7 +62,7 @@ userLoop = forever $ do
     else do
       response <- runExceptT $ runReaderT mainMenuPrompt env
       case response of
-        Right resp' -> writeChannel respTChan resp'
+        Right resp -> writeChannel respTChan resp
         Left  err   -> writeChannel respTChan (RespAppError err) >> liftIO (print err)
 
 mainLoop :: AppM Env ()

@@ -26,7 +26,7 @@ mainMenuPrompt ::
   ) => m Response
 mainMenuPrompt = do
   respTChan <- asks userEnvRespTchan
-  mapM_ (writeChannel respTChan . RespAnnounce) ["Welcome to hMud", "Options: register, login, exit"]
+  mapM_ (writeChannel respTChan . RespAnnounce) ["Welcome to hMud", "Options: register, create, login, exit"]
   resp <- prompt $ PromptEnv "> " False
   case resp of
     Exit -> do
@@ -35,6 +35,7 @@ mainMenuPrompt = do
       pure $ RespExit threadId socket
     Login -> loginPrompt
     Register -> registerPrompt
+    Create -> createPlayerPrompt
     _ -> throwError $ InputErr InvalidCommand
 
 loginPrompt ::
@@ -100,26 +101,16 @@ registerPrompt = do
 
 createPlayerPrompt ::
   ( MonadReader UserEnv m
-  , MonadDB m
   , MonadTChan m
   , MonadTCP m
   , MonadError AppError m
   , MonadPlayer m
   ) => m Response
 createPlayerPrompt = do
-  userId <- getAccountId
-  name <- guardWord =<< prompt (PromptEnv "Name: " False)
+  userId      <- getAccountId
+  name        <- guardWord =<< prompt (PromptEnv "Name: " False)
   description <- guardWord =<< prompt (PromptEnv "Description: " False)
   createPlayer userId name description
-  pure $ RespPlayerCreated name
-
-createPlayer ::
-  ( MonadReader UserEnv m
-  , MonadDB m
-  ) => AccountId -> Text -> Text -> m ()
-createPlayer uid name desc = do
-  handle <- asks getConnectionHandle
-  void . insertPlayer handle $ Player (PlayerId 0) uid name desc (pure $ InventoryId 0)
 
 data PromptEnv = PromptEnv { _prefix :: Text, _suppressed :: Bool}
 
