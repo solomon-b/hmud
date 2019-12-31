@@ -118,6 +118,8 @@ instance Exception DuplicateData
 ---- Queries ----
 -----------------
 
+-- Create Tables --
+
 createAccountTableQuery :: Query
 createAccountTableQuery = [r|
 CREATE TABLE IF NOT EXISTS accounts(
@@ -128,34 +130,6 @@ CREATE TABLE IF NOT EXISTS accounts(
   FOREIGN KEY(playerId) REFERENCES players (id)
 )
 |]
-
-insertAccountQuery :: Query
-insertAccountQuery = [r|
-INSERT INTO accounts
- VALUES (NULL, ?, ?, NULL)
-|]
-
-setAccountQuery :: Query
-setAccountQuery = [r|
-UPDATE accounts
-SET email = :email, password = :pass, playerId = :playerId
-WHERE id = :id
-|]
-
-deleteAccountQuery :: Query
-deleteAccountQuery = [r|
-DELETE FROM accounts
-WHERE id = :id
-|]
-
-selectAllAccountsQuery :: Query
-selectAllAccountsQuery = "SELECT * from accounts"
-
-selectAccountByEmailQuery :: Query
-selectAccountByEmailQuery = "SELECT * from accounts where email = ?"
-
-selectAccountByIdQuery :: Query
-selectAccountByIdQuery = "SELECT * from accounts where id = ?"
 
 createPlayerTableQuery :: Query
 createPlayerTableQuery = [r|
@@ -168,22 +142,63 @@ CREATE TABLE IF NOT EXISTS players (
 )
 |]
 
+createInventoryTableQuery :: Query
+createInventoryTableQuery = [r|
+CREATE TABLE inventories(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ownerId     INTEGER NOT NULL,
+  ownerType   TEXT NOT NULL,
+  capacity    INTEGER NOT NULL)
+|]
+
+-- Account Queries --
+
+insertAccountQuery :: Query
+insertAccountQuery = [r|
+INSERT INTO accounts
+ VALUES (NULL, ?, ?, NULL)
+|]
+
+deleteAccountQuery :: Query
+deleteAccountQuery = [r|
+DELETE FROM accounts
+WHERE id = :id
+|]
+
+setAccountQuery :: Query
+setAccountQuery = [r|
+UPDATE accounts
+SET email = :email, password = :pass, playerId = :playerId
+WHERE id = :id
+|]
+
+selectAllAccountsQuery :: Query
+selectAllAccountsQuery = "SELECT * from accounts"
+
+selectAccountByEmailQuery :: Query
+selectAccountByEmailQuery = "SELECT * from accounts where email = ?"
+
+selectAccountByIdQuery :: Query
+selectAccountByIdQuery = "SELECT * from accounts where id = ?"
+
+-- Player Queries --
+
 insertPlayerQuery :: Query
 insertPlayerQuery = [r|
 INSERT INTO players
  VALUES (NULL, ?, ?, ?)
 |]
 
+deletePlayerQuery :: Query
+deletePlayerQuery = [r|
+DELETE FROM players
+WHERE id = :id
+|]
+
 setPlayerQuery :: Query
 setPlayerQuery = [r|
 UPDATE accounts
 SET accountId = :accountId, name = :name, description = :desc
-WHERE id = :id
-|]
-
-deletePlayerQuery :: Query
-deletePlayerQuery = [r|
-DELETE FROM players
 WHERE id = :id
 |]
 
@@ -199,19 +214,25 @@ selectPlayerByAccountIdQuery = "SELECT * from players where accountId = ?"
 selectPlayerByIdQuery :: Query
 selectPlayerByIdQuery = "SELECT * from players where id = ?"
 
-createInventoryTableQuery :: Query
-createInventoryTableQuery = [r|
-CREATE TABLE inventories(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ownerId     INTEGER NOT NULL,
-  ownerType   TEXT NOT NULL,
-  capacity    INTEGER NOT NULL)
+-- Inventory Queries --
+
+insertInventoryQuery :: Query
+insertInventoryQuery = [r|
+INSERT INTO inventories
+  VALUES (NULL, :ownerId, :ownerType, :capacity)
 |]
 
-createInventoryQuery :: Query
-createInventoryQuery = [r|
-INSERT INTO inventories
-  VALUES (NULL, ?, ?, ?)
+deleteInventoryQuery :: Query
+deleteInventoryQuery = [r|
+DELETE FROM inventories
+WHERE id = :id
+|]
+
+setInventoryQuery :: Query
+setInventoryQuery = [r|
+UPDATE inventories
+SET ownerId = :ownerId, ownerType = :ownerType, capacity = :capacity
+WHERE id = :id
 |]
 
 -----------------------
@@ -223,6 +244,7 @@ createDatabase = do
     conn <-  open "hmud.db"
     execute_ conn createAccountTableQuery
     execute_ conn createPlayerTableQuery
+    execute_ conn createInventoryTableQuery
     --execute conn insertAccountQuery defAccount
     users <- query_ conn selectAllAccountsQuery
     mapM_ print (users :: [Account])
@@ -279,6 +301,9 @@ instance MonadSqlCRUD IO Player PlayerId where
                  ]
     executeNamed conn setPlayerQuery params
     pure (Just player)
+
+--instance MonadSqlCRUD IO Inventory InventoryId where
+--  create (Handle conn) inventory = execute conn insertInventoryQuery inventory >> pure inventory
 
 viewRow_ :: (ToField a, FromRow b) => Query -> Handle -> a -> IO (Maybe b)
 viewRow_ query' (Handle conn) uid = query conn query' (Only uid) >>= \case
