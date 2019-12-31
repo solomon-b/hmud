@@ -65,10 +65,12 @@ instance Show Direction where
 
 newtype ItemTypeId = ItemTypeId Integer deriving (Show, Eq, Ord)
 newtype ItemId = ItemId Integer deriving (Show, Eq, Ord)
-newtype InventoryId = InventoryId Integer deriving (Show, Eq, Ord)
 newtype RoomId = RoomId Integer deriving (Show, Eq, Ord)
 newtype AccountId = AccountId Integer deriving (Show, Eq, Ord)
 newtype PlayerId = PlayerId Integer deriving (Show, Eq, Ord)
+newtype InventoryId = InventoryId Integer deriving (Show, Eq, Ord)
+data InventoryOwner = PlayerInv | RoomInv | ItemInv deriving (Show, Eq, Ord)
+data OwnerId = PlayerOwned PlayerId | RoomOwned RoomId | ItemOwned ItemId deriving (Show, Eq, Ord)
 
 type ActivePlayers = Map PlayerId Player
 type WorldMap      = Map RoomId Room
@@ -76,6 +78,7 @@ type PlayerMap     = Map RoomId [PlayerId]
 type InventoryMap  = Map InventoryId [ItemId]
 type ItemTypeMap   = Map ItemTypeId ItemType
 type ItemMap       = Map ItemId Item
+type Capacity      = Integer
 
 type TwoHanded = Bool
 data EquipmentType = Head | Torso | Legs | Feet | Hand TwoHanded | Arms | Finger | Trinket
@@ -97,6 +100,13 @@ data Item = Item
   , _itemInventoryId :: InventoryId
   } deriving Show
 
+data Inventory = Inventory
+  { _inventoryId       :: InventoryId
+  , _inventoryCapacity :: Capacity
+  , _inventoryOwnerId  :: OwnerId
+  , _inventoryItems    :: [ItemId]
+  } deriving (Eq, Show)
+
 data Account = Account
   { _accountId       :: AccountId
   , _accountEmail    :: Text
@@ -109,7 +119,7 @@ data Player = Player
   , _playerAccountId   :: AccountId
   , _playerName        :: Text
   , _playerDescription :: Text
-  , _playerInventoryId :: Maybe InventoryId
+  , _playerInventory   :: InventoryId
   } deriving (Eq, Show)
 
 instance Show Account where
@@ -147,11 +157,10 @@ instance FromRow Player where
                    <*> (AccountId <$> field)
                    <*> field
                    <*> field
-                   <*> ((fmap . fmap) InventoryId field)
+                   <*> ((fmap) InventoryId field)
 
 instance ToRow Player where
-  toRow (Player (PlayerId t1) (AccountId t2) t3 t4 (Just (InventoryId t5))) = toRow (t1, t2, t3, t4, t5)
-  toRow (Player (PlayerId t1) (AccountId t2) t3 t4 Nothing) = toRow (t1, t2, t3, t4, SQLNull)
+  toRow (Player (PlayerId t1) (AccountId t2) t3 t4 (InventoryId t5)) = toRow (t1, t2, t3, t4, t5)
 
 --instance FromRow (Map Direction RoomId) where
 --  fromRow = undefined
@@ -162,6 +171,14 @@ instance ToRow Player where
 instance ToField (Map Direction RoomId) where
   toField = SQLText . T.pack . show
 
+instance ToField (AccountId) where
+  toField (AccountId uid) = SQLText . T.pack $ show uid
+
+instance ToField (PlayerId) where
+  toField (PlayerId uid) = SQLText . T.pack $ show uid
+
+instance ToField (InventoryId) where
+  toField (InventoryId uid) = SQLText . T.pack $ show uid
 -------------------
 ---- The World ----
 -------------------
@@ -270,6 +287,7 @@ instance Lookable Item where
 makeLenses ''GameState
 makeLenses ''Room
 makeLenses ''Item
+makeLenses ''Inventory
 makeLenses ''Player
 makeLenses ''Account
 makeLenses ''ItemType
