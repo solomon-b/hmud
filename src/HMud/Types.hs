@@ -1,6 +1,7 @@
 module HMud.Types where
 
 import Control.Concurrent (ThreadId)
+import Control.Exception
 import Control.Lens
 
 import Data.List (intersperse)
@@ -9,7 +10,11 @@ import qualified Data.Text as T (concat, pack, append)
 import Data.Map.Strict (Map)
 import Database.SQLite.Simple
 import Database.SQLite.Simple.ToField
+import Database.SQLite.Simple.FromField
+import Database.SQLite.Simple.FromRow
+import Database.SQLite.Simple.Ok
 import Data.Text (Text)
+import qualified Data.Text as T
 
 import HMud.Errors
 import qualified HMud.Socket as Socket
@@ -63,14 +68,15 @@ instance Show Direction where
 ---- State/Env ----
 -------------------
 
-newtype ItemTypeId = ItemTypeId Integer deriving (Show, Eq, Ord)
-newtype ItemId = ItemId Integer deriving (Show, Eq, Ord)
-newtype RoomId = RoomId Integer deriving (Show, Eq, Ord)
-newtype AccountId = AccountId Integer deriving (Show, Eq, Ord)
-newtype PlayerId = PlayerId Integer deriving (Show, Eq, Ord)
-newtype InventoryId = InventoryId Integer deriving (Show, Eq, Ord)
+newtype ItemTypeId = ItemTypeId Int deriving (Show, Eq, Ord)
+newtype ItemId = ItemId Int deriving (Show, Eq, Ord)
+newtype RoomId = RoomId Int deriving (Show, Eq, Ord)
+newtype AccountId = AccountId Int deriving (Show, Eq, Ord)
+newtype PlayerId = PlayerId Int deriving (Show, Eq, Ord)
+newtype InventoryId = InventoryId Int deriving (Show, Eq, Ord)
 data InventoryOwner = PlayerInv | RoomInv | ItemInv deriving (Show, Eq, Ord)
 data OwnerId = PlayerOwned PlayerId | RoomOwned RoomId | ItemOwned ItemId deriving (Show, Eq, Ord)
+data OwnerType = PlayerOwner | RoomOwner | ItemOwner deriving (Show, Eq, Ord)
 
 type ActivePlayers = Map PlayerId Player
 type WorldMap      = Map RoomId Room
@@ -78,7 +84,7 @@ type PlayerMap     = Map RoomId [PlayerId]
 type InventoryMap  = Map InventoryId [ItemId]
 type ItemTypeMap   = Map ItemTypeId ItemType
 type ItemMap       = Map ItemId Item
-type Capacity      = Integer
+type Capacity      = Int
 
 type TwoHanded = Bool
 data EquipmentType = Head | Torso | Legs | Feet | Hand TwoHanded | Arms | Finger | Trinket
@@ -88,10 +94,10 @@ data ItemType = ItemType
   { _itemTypeItemTypeId    :: ItemTypeId
   , _itemTypeName          :: Text
   , _itemTypeDescription   :: Text
-  , _itemTypeWeight        :: Integer
+  , _itemTypeWeight        :: Int
   , _itemTypeEquipmentType :: EquipmentType
   , _itemTypeMovable       :: Bool
-  , _itemContainerCapacity :: Integer
+  , _itemContainerCapacity :: Int
   } deriving Show
 
 data Item = Item
@@ -157,10 +163,24 @@ instance FromRow Player where
                    <*> (AccountId <$> field)
                    <*> field
                    <*> field
-                   <*> ((fmap) InventoryId field)
+                   <*> (fmap InventoryId field)
 
 instance ToRow Player where
-  toRow (Player (PlayerId t1) (AccountId t2) t3 t4 (InventoryId t5)) = toRow (t1, t2, t3, t4, t5)
+  toRow (Player (PlayerId t1) (AccountId t2) t3 t4 _) = toRow (t1, t2, t3, t4)
+
+instance FromRow Inventory where
+  fromRow = do
+    invId     <- InventoryId <$> field
+    ownerId   <- (field :: RowParser Int)
+    ownerType <- (field :: RowParser OwnerType)
+    capacity  <- (field :: RowParser Int)
+    case ownerType of
+      PlayerOwner -> pure $ Inventory invId capacity (PlayerOwned $ PlayerId ownerId) []
+      RoomOwner   -> pure $ Inventory invId capacity (RoomOwned $ RoomId ownerId) []
+      ItemOwner   -> pure $ Inventory invId capacity (ItemOwned $ ItemId ownerId) []
+
+instance ToRow Inventory where
+  toRow (Inventory inventoryId capacity ownerId items) = undefined
 
 --instance FromRow (Map Direction RoomId) where
 --  fromRow = undefined
@@ -171,14 +191,47 @@ instance ToRow Player where
 instance ToField (Map Direction RoomId) where
   toField = SQLText . T.pack . show
 
-instance ToField (AccountId) where
-  toField (AccountId uid) = SQLText . T.pack $ show uid
+instance ToField AccountId where
+  toField (AccountId uid) = SQLInteger $ fromIntegral uid
 
-instance ToField (PlayerId) where
-  toField (PlayerId uid) = SQLText . T.pack $ show uid
+instance ToField PlayerId where
+  toField (PlayerId uid) = SQLInteger $ fromIntegral uid
 
-instance ToField (InventoryId) where
-  toField (InventoryId uid) = SQLText . T.pack $ show uid
+instance ToField RoomId where
+  toField (RoomId uid) = SQLInteger $ fromIntegral uid
+
+instance ToField ItemId where
+  toField (ItemId uid) = SQLInteger $ fromIntegral uid
+
+instance ToField InventoryId where
+  toField (InventoryId uid) = SQLInteger $ fromIntegral uid
+
+instance ToField OwnerId where
+  toField (PlayerOwned uid) = toField uid
+  toField (RoomOwned uid) = toField uid
+  toField (ItemOwned uid) = toField uid
+
+instance ToField OwnerType where
+  toField owner = SQLText . T.pack $ show owner
+
+instance FromField OwnerType where
+  fromField f = do
+    case fieldData f of
+      SQLText text ->
+        case text of
+          -- TODO: Replace with a proper Parser
+          "PlayerOwner" -> Ok PlayerOwner
+          "RoomOwner" -> Ok RoomOwner
+          "ItemOwner" -> Ok ItemOwner
+          e -> Errors [SomeException $ InvalidOwnerValue e]
+      e -> Errors [SomeException $ InvalidOwnerType e]
+
+data OwnerParseError = InvalidOwnerValue Text | InvalidOwnerType SQLData
+    deriving Show
+
+instance Exception OwnerParseError
+
+
 -------------------
 ---- The World ----
 -------------------

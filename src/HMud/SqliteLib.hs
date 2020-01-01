@@ -7,7 +7,6 @@ module HMud.SqliteLib
     , Account(..)
     , AccountId
     , withHandle
-    , newHandle
     , createDatabase
     , insertAccount
     , selectAccount
@@ -18,8 +17,10 @@ module HMud.SqliteLib
     , selectPlayerByAccountId
     , selectAllPlayers
     , MonadSqlCRUD(..)
+    , runTests
     ) where
 
+import Control.Lens ((&), (.~), (^.))
 import Control.Exception (Exception, bracket, throwIO)
 import Data.Text (Text, concat, pack)
 import Data.Typeable (Typeable)
@@ -123,19 +124,19 @@ instance Exception DuplicateData
 createAccountTableQuery :: Query
 createAccountTableQuery = [r|
 CREATE TABLE IF NOT EXISTS accounts(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  email     TEXT UNIQUE NOT NULL,
-  password  TEXT NOT NULL,
-  playerId  INTEGER,
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  email                 TEXT UNIQUE NOT NULL,
+  password              TEXT NOT NULL,
+  playerId              INTEGER,
   FOREIGN KEY(playerId) REFERENCES players (id)
 )
 |]
 
 createPlayerTableQuery :: Query
 createPlayerTableQuery = [r|
-CREATE TABLE IF NOT EXISTS players (
+CREATE TABLE IF NOT EXISTS players(
   id                     INTEGER PRIMARY KEY AUTOINCREMENT,
-  accountId              INTEGER,
+  accountId              INTEGER NOT NULL,
   name                   TEXT NOT NULL,
   description            TEXT NOT NULL,
   FOREIGN KEY(accountId) REFERENCES accounts (id)
@@ -156,7 +157,7 @@ CREATE TABLE inventories(
 insertAccountQuery :: Query
 insertAccountQuery = [r|
 INSERT INTO accounts
- VALUES (NULL, ?, ?, NULL)
+ VALUES (NULL, :email, :pass, NULL)
 |]
 
 deleteAccountQuery :: Query
@@ -186,7 +187,7 @@ selectAccountByIdQuery = "SELECT * from accounts where id = ?"
 insertPlayerQuery :: Query
 insertPlayerQuery = [r|
 INSERT INTO players
- VALUES (NULL, ?, ?, ?)
+VALUES (NULL, :accountId, :name, :desc)
 |]
 
 deletePlayerQuery :: Query
@@ -203,16 +204,44 @@ WHERE id = :id
 |]
 
 selectAllPlayersQuery :: Query
-selectAllPlayersQuery = "SELECT * from players"
+selectAllPlayersQuery = [r|
+SELECT
+  players.id,
+  players.accountId,
+  players.name,
+  players.description,
+  inventories.id
+FROM
+  players
+LEFT JOIN
+  inventories
+ON
+  inventories.ownerId = players.id
+|]
 
-selectPlayerQuery :: Query
-selectPlayerQuery = "SELECT * from players where name = ?"
+selectPlayerQueryByName :: Query
+selectPlayerQueryByName = [r|
+SELECT *
+FROM players
+INNER JOIN inventories ON inventories.ownerId = players.id
+WHERE players.name = ?
+|]
 
 selectPlayerByAccountIdQuery :: Query
-selectPlayerByAccountIdQuery = "SELECT * from players where accountId = ?"
+selectPlayerByAccountIdQuery = [r|
+SELECT *
+FROM players
+INNER JOIN inventories ON inventories.ownerId = players.id
+WHERE accountId = ?
+|]
 
 selectPlayerByIdQuery :: Query
-selectPlayerByIdQuery = "SELECT * from players where id = ?"
+selectPlayerByIdQuery = [r|
+SELECT *
+FROM players
+INNER JOIN inventories ON inventories.ownerId = players.id
+WHERE id = ?
+|]
 
 -- Inventory Queries --
 
@@ -235,13 +264,31 @@ SET ownerId = :ownerId, ownerType = :ownerType, capacity = :capacity
 WHERE id = :id
 |]
 
+selectAllInventoriesQuery :: Query
+selectAllInventoriesQuery = [r|
+SELECT * FROM inventories
+|]
+
+selectInventoryByIdQuery :: Query
+selectInventoryByIdQuery = [r|
+SELECT * FROM inventories
+WHERE id = :id
+|]
+
+selectInventoryByOwnerQuery :: Query
+selectInventoryByOwnerQuery = [r|
+SELECT * FROM inventories
+WHERE ownerId = :ownerId AND ownerType = :ownerType
+|]
+
+
 -----------------------
 ---- Database CRUD ----
 -----------------------
 
 createDatabase :: IO ()
 createDatabase = do
-    conn <-  open "hmud.db"
+    conn <- open "hmud.db"
     execute_ conn createAccountTableQuery
     execute_ conn createPlayerTableQuery
     execute_ conn createInventoryTableQuery
@@ -259,6 +306,58 @@ formatAccount (Account uid email _ playerId) =
                      , "UID: "  , (pack . show) uid, "\t"
                      , "playerId: ", (pack . show) playerId]
 
+
+-------------------
+--- Test Script ---
+-------------------
+
+viewDB :: Handle -> IO ()
+viewDB conn = do
+  accounts <- viewIf conn (const True) :: IO [Account]
+  players <- viewIf conn (const True) :: IO [Player]
+  inventories <- viewIf conn (const True) :: IO [Inventory]
+  putStrLn "Accounts:"
+  print accounts
+  putStrLn "Players:"
+  print players
+  putStrLn "Inventories:"
+  print inventories
+
+createAnAccount :: Handle -> IO Account
+createAnAccount conn = do
+  putStrLn "Creating an account"
+  create conn (Account (AccountId 1) "test@gmail.com" "password" Nothing)
+
+createAPlayer :: Handle -> AccountId -> IO Player
+createAPlayer conn aid = do
+  putStrLn "Creating a player"
+  create conn (Player (PlayerId 1) aid "Test" "Desc" (InventoryId 1))
+
+deleteAnAccount :: Handle -> AccountId -> IO ()
+deleteAnAccount conn aid = do
+  putStrLn "Deleting an account"
+  delete conn aid
+
+deleteAPlayer :: Handle -> PlayerId -> IO ()
+deleteAPlayer conn pid = do
+  putStrLn "Deleting a player"
+  delete conn pid
+
+runTests :: IO ()
+runTests = do
+  conn <- open ""
+  execute_ conn createAccountTableQuery
+  execute_ conn createPlayerTableQuery
+  execute_ conn createInventoryTableQuery
+  let handle = Handle conn
+  account <- createAnAccount handle
+  player <- createAPlayer handle (account ^. accountId)
+  viewDB handle
+  --putStrLn ""
+  --deleteAnAccount handle (account ^. accountId)
+  --deleteAPlayer handle (player ^. playerPlayerId)
+  --viewDB handle
+
 -----------------
 ---- Actions ----
 -----------------
@@ -267,6 +366,7 @@ class Monad m => MonadSqlCRUD m rowType id | rowType -> id, id -> rowType where
   create :: Handle -> rowType -> m rowType
   delete :: Handle -> id -> m ()
   view   :: Handle -> id -> m (Maybe rowType)
+  viewIf :: Handle -> (rowType -> Bool) -> m [rowType]
   over   :: Handle -> (rowType -> rowType) -> id -> m (Maybe rowType)
   over handle f uid =
       (fmap . fmap) f (view handle uid) >>= \case
@@ -276,9 +376,16 @@ class Monad m => MonadSqlCRUD m rowType id | rowType -> id, id -> rowType where
 
 
 instance MonadSqlCRUD IO Account AccountId where
-  create (Handle conn) account = execute conn insertAccountQuery account >> pure account
-  delete (Handle conn) aid = execute conn deleteAccountQuery (Only aid)
+  create (Handle conn) account = do
+    let params = [ ":email" := account ^. accountEmail
+                 , ":pass" := account ^. accountPassword]
+    executeNamed conn insertAccountQuery params
+    pure account
+  delete (Handle conn) (AccountId aid) = executeNamed conn deleteAccountQuery [":id" := aid]
   view handle uid = viewRow_ selectAccountByIdQuery handle uid
+  viewIf (Handle conn) f = do
+    accounts <- query_ conn selectAllAccountsQuery
+    pure $ filter f accounts
   set (Handle conn) acc = do
     let params = [ ":id" := _accountId acc
                  , ":email" := _accountEmail acc
@@ -289,9 +396,22 @@ instance MonadSqlCRUD IO Account AccountId where
     pure (Just acc)
 
 instance MonadSqlCRUD IO Player PlayerId where
-  create (Handle conn) player = execute conn insertPlayerQuery player >> pure player
-  delete (Handle conn) pid = execute conn deletePlayerQuery (Only pid)
+  create (Handle conn) player = do
+    let params = [ ":accountId" := (player ^. playerAccountId)
+                 , ":name"      := (player ^. playerName)
+                 , ":desc"      := (player ^. playerDescription)
+                 ]
+    executeNamed conn insertPlayerQuery params
+    pid <- (PlayerId . fromIntegral) <$> lastInsertRowId conn
+    create (Handle conn) (Inventory (InventoryId 0) 100 (PlayerOwned pid) [])
+    iid <- (InventoryId . fromIntegral) <$> lastInsertRowId conn
+    pure $ player & playerInventory .~ iid
+    pure player
+  delete (Handle conn) (PlayerId pid) = executeNamed conn deletePlayerQuery [":id" := pid]
   view handle pid = viewRow_ selectPlayerByIdQuery handle pid
+  viewIf (Handle conn) f = do
+    players <- query_ conn selectAllPlayersQuery
+    pure $ filter f players
   set (Handle conn) player = do
     let params = [ ":id" := _playerPlayerId player
                  , ":accountId" := _playerAccountId player
@@ -302,8 +422,34 @@ instance MonadSqlCRUD IO Player PlayerId where
     executeNamed conn setPlayerQuery params
     pure (Just player)
 
---instance MonadSqlCRUD IO Inventory InventoryId where
---  create (Handle conn) inventory = execute conn insertInventoryQuery inventory >> pure inventory
+instance MonadSqlCRUD IO Inventory InventoryId where
+  create (Handle conn) inv = do
+    let ownerType = case _inventoryOwnerId inv of
+          PlayerOwned _ -> PlayerOwner
+          RoomOwned   _ -> RoomOwner
+          ItemOwned   _ -> ItemOwner
+        params = [ ":ownerId" := _inventoryOwnerId inv
+                 , ":ownerType" := ownerType
+                 , ":capacity" := _inventoryCapacity inv
+                 ]
+    executeNamed conn insertInventoryQuery params
+    pure inv
+  delete (Handle conn) iid = execute conn deletePlayerQuery (Only iid)
+  view handle iid = viewRow_ selectInventoryByIdQuery handle iid
+  viewIf (Handle conn) f = do
+    inventories <- query_ conn selectAllInventoriesQuery
+    pure $ filter f inventories
+  set (Handle conn) inv = do
+    let ownerType = case _inventoryOwnerId inv of
+          PlayerOwned _ -> PlayerOwner
+          RoomOwned   _ -> RoomOwner
+          ItemOwned   _ -> ItemOwner
+        params = [ ":ownerId" := _inventoryOwnerId inv
+                 , ":ownerType" := ownerType
+                 , ":capacity" := _inventoryCapacity inv
+                 ]
+    executeNamed conn setInventoryQuery params
+    pure (Just inv)
 
 viewRow_ :: (ToField a, FromRow b) => Query -> Handle -> a -> IO (Maybe b)
 viewRow_ query' (Handle conn) uid = query conn query' (Only uid) >>= \case
@@ -329,7 +475,7 @@ insertAccount (Handle conn) account = do
 
 selectPlayer :: Handle -> Text -> IO (Maybe Player)
 selectPlayer (Handle conn) name = do
-    results <- query conn selectPlayerQuery (Only name)
+    results <- query conn selectPlayerQueryByName (Only name)
     case results of
         [] -> return Nothing
         [player] -> return $ Just player
@@ -358,16 +504,3 @@ insertPlayer :: Handle -> Player -> IO Player
 insertPlayer (Handle conn) player = do
     execute conn insertPlayerQuery player
     return player
-
-createInventory' :: Handle -> OwnerId -> IO (Maybe InventoryId)
-createInventory' h@(Handle conn) = \case
-  PlayerOwned uid -> do
-    mplayer <- selectPlayerById h uid
-    case mplayer of
-      Just player -> do
-        execute conn createInventoryQuery player
-        inventoryId <- fromIntegral <$> lastInsertRowId conn
-        pure $ Just $ InventoryId inventoryId
-      Nothing -> pure Nothing
-  RoomOwned uid -> undefined
-  ItemOwned uid -> undefined
