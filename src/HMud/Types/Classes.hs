@@ -16,7 +16,9 @@ import HMud.Errors
 import HMud.Types
 import qualified HMud.Socket as Socket
 import qualified HMud.SqliteLib as SQL
+import HMud.SqliteLib (HasConnectionHandle(..))
 import HMud.SqliteLib (Account(..), AccountId)
+
 
 --------------------
 --- Environments ---
@@ -29,6 +31,9 @@ data Env =
       , envHandle     :: Socket.Handle
       }
 
+instance HasConnectionHandle Env where
+  getConnectionHandle = envConnHandle
+
 data UserEnv =
   UserEnv { userEnvConnHandle :: SQL.Handle              -- Remove Soon?
           , userEnvHandle     :: Socket.Handle           -- Remove Soon?
@@ -39,6 +44,10 @@ data UserEnv =
           , userEnvRespTchan  :: TChan Response          -- Write Responses to the socket
           , userEnvAccountId     :: TVar (Maybe AccountId) -- Current Account ID
           }
+
+instance HasConnectionHandle UserEnv where
+  getConnectionHandle = userEnvConnHandle
+
 
 ---------------------
 ---- MTL Classes ----
@@ -52,15 +61,6 @@ instance HasState Env where
   getState = envStateTVar
 instance HasState UserEnv where
   getState = userEnvStateTVar
-
-class HasConnectionHandle env where
-  getConnectionHandle :: env -> SQL.Handle
-instance HasConnectionHandle SQL.Handle where
-  getConnectionHandle = id
-instance HasConnectionHandle Env where
-  getConnectionHandle = envConnHandle
-instance HasConnectionHandle UserEnv where
-  getConnectionHandle = userEnvConnHandle
 
 class HasSocketHandle env where
   getSocketHandle :: env -> Socket.Handle

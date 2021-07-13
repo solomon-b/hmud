@@ -1,5 +1,6 @@
 module HMud.Types where
 
+import Control.Concurrent.STM
 import Control.Concurrent (ThreadId)
 import Control.Exception
 import Control.Lens
@@ -8,13 +9,14 @@ import Data.List (intersperse)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T (concat, pack, append)
 import Data.Map.Strict (Map)
+import Data.Text (Text)
+
 import Database.SQLite.Simple
 import Database.SQLite.Simple.ToField
 import Database.SQLite.Simple.FromField
 import Database.SQLite.Simple.FromRow
 import Database.SQLite.Simple.Ok
-import Data.Text (Text)
-import qualified Data.Text as T
+
 
 import HMud.Errors
 import qualified HMud.Socket as Socket
